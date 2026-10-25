@@ -1,0 +1,14 @@
+{% extends "events/event_layout.html" %}
+{% block title %}My reports{% endblock %}
+{% block pane %}
+<div class="home-wrap">
+  <div>
+    <p class="note mb-2">Pick a report on the left to carry on, or start a new one.</p>
+    <a class="tile" href="{% url 'event_create' %}">
+      <span class="ico"><i class="bi bi-journal-plus"></i></span>
+      <span class="t">Submit an event</span>
+      <span class="s">Your progress is saved as you go</span>
+    </a>
+  </div>
+</div>
+{% endblock %}

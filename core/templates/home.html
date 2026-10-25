@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block datatables_js %}{% endblock %}
+{% block datatables_css %}{% endblock %}
+{% block chart_js %}{% endblock %}
+
+{% block content %}
+<div class="home-wrap">
+  <div>
+    <h2 class="h5 fw-bold mb-0">Hello, {{ user.get_full_name|default:user.username }}</h2>
+    <p class="note mb-2">What would you like to do?</p>
+    {% url 'event_create' as url_new %}
+    <a class="tile" href="{{ url_new }}">
+      <span class="ico"><i class="bi bi-journal-plus"></i></span>
+      <span class="t">Submit an event</span>
+      <span class="s">Record a site event on the day it happens</span>
+    </a>
+  </div>
+</div>
+{% endblock %}

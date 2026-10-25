@@ -1,0 +1,100 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1A1A1A">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}Site Event Register{% endblock %} | WPU</title>
+
+  <!-- CSS: vendor (self-hosted) -->
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap-icons/font/bootstrap-icons.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/tom-select/css/tom-select.default.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/flatpickr/css/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/sweetalert2/css/sweetalert2.min.css' %}">
+  
+  {% block datatables_css %}
+  <link rel="stylesheet" href="{% static 'vendor/datatables/css/datatables.min.css' %}">
+  {% endblock %}
+
+  <!-- CSS: our theme (must stay last) -->
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block extra_css %}{% endblock %}
+
+  <!-- Alpine: deferred so app.js (end of body) can register components first -->
+  <script defer src="{% static 'vendor/alpine/alpine.min.js' %}"></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+
+  <!-- Form-style header: Wabtec | title | BHP -->
+  <header class="wpu-head">
+    <div class="container-xl d-flex align-items-center justify-content-between gap-3">
+      <img src="{% static 'img/wabtec.png' %}" alt="Wabtec Corporation" class="wpu-logo">
+      <h1 class="wpu-title">{% block head_title %}SITE EVENT REGISTER{% endblock %}</h1>
+      <img src="{% static 'img/bhp.png' %}" alt="BHP" class="wpu-logo wpu-logo-bhp">
+    </div>
+  </header>
+
+  <!-- Navigation (a link shows only once its URL name exists) -->
+  {% url 'home' as url_home %}{% url 'event_list' as url_list %}{% url 'event_create' as url_new %}{% url 'dashboard' as url_dash %}{% url 'logout' as url_logout %}
+  {% if user.is_authenticated %}
+  <nav class="navbar navbar-expand-md navbar-dark wpu-nav">
+    <div class="container-xl">
+      <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Menu">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="mainNav">
+        <ul class="navbar-nav me-auto">
+          {% if url_home %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}" href="{{ url_home }}"><i class="bi bi-house"></i> Home</a></li>{% endif %}
+          {% if url_list %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'event_list' %}active{% endif %}" href="{{ url_list }}"><i class="bi bi-list-ul"></i> Events</a></li>{% endif %}
+          {% if url_new %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'event_create' %}active{% endif %}" href="{{ url_new }}"><i class="bi bi-plus-circle"></i> New event</a></li>{% endif %}
+          {% if url_dash and user.can_see_contract %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{{ url_dash }}"><i class="bi bi-bar-chart"></i> Dashboard</a></li>{% endif %}
+          {% if user.is_staff %}<li class="nav-item"><a class="nav-link" href="/admin/"><i class="bi bi-gear"></i> Admin</a></li>{% endif %}
+        </ul>
+        <div class="d-flex align-items-center gap-3 text-white-50 small">
+          <span><i class="bi bi-person-circle"></i> {{ user.get_full_name|default:user.username }} {% if user.company_name %}<span class="badge text-bg-secondary">{{ user.company_name }}</span>{% endif %}</span>
+          {% if url_logout %}
+          <form method="post" action="{{ url_logout }}" class="m-0">{% csrf_token %}<button class="btn btn-sm btn-outline-light" type="submit"><i class="bi bi-box-arrow-right"></i> Log out</button></form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </nav>
+  {% endif %}
+
+  <!-- Django messages -> SweetAlert2 toasts -->
+  {% if messages %}<div id="dj-messages" hidden>{% for m in messages %}<span data-level="{{ m.level_tag }}">{{ m }}</span>{% endfor %}</div>{% endif %}
+
+  <main class="container-xl py-3">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="wpu-foot">
+    <div class="container-xl d-flex justify-content-between small">
+      <span>WPU Site Event Register</span>
+      <span>1 - General Business</span>
+    </div>
+  </footer>
+
+  <script src="{% static 'vendor/jquery/jquery-3.7.1.min.js' %}"></script>
+  
+  {% block datatables_js %}
+
+  <script src="{% static 'vendor/datatables/js/datatables.min.js' %}"></script>
+  <!-- DataTables Export Add-ons found in your folder -->
+  <script src="{% static 'vendor/datatables/js/pdfmake.min.js' %}"></script>
+  <script src="{% static 'vendor/datatables/js/vfs_fonts.js' %}"></script>
+  {% endblock %}
+  <!-- JS: vendor (self-hosted) -->
+  <script src="{% static 'vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+  <script src="{% static 'vendor/sweetalert2/js/sweetalert2.all.min.js' %}"></script>
+  <script src="{% static 'vendor/tom-select/js/tom-select.complete.min.js' %}"></script>
+  <script src="{% static 'vendor/flatpickr/js/flatpickr.min.js' %}"></script>
+  {% block chart_js %}<script src="{% static 'vendor/chartjs/chart.min.js' %}"></script>{% endblock %}
+
+  <!-- JS: our code (must stay last) -->
+  <script src="{% static 'js/app.js' %}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

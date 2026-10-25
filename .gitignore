@@ -1,0 +1,45 @@
+# Secrets and environment files
+.env
+.env.*
+*.env
+!.env.example
+
+# Databases and backups
+*.sqlite3
+*.sqlite3-journal
+*.db
+*.bak
+*.backup
+*backup*
+/wabtec_backups/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+
+# Django generated static output
+/staticfiles/
+
+# User uploads
+/media/
+/uploads/
+
+# Sensitive data files
+new_logins.csv
+
+# Local IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local configuration and runtime files
+local_settings.py
+*.log
+*.pid
+.DS_Store

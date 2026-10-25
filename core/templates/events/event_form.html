@@ -1,0 +1,653 @@
+{% extends "events/event_layout.html" %}
+{% load static %}
+{% block title %}{% if event %}{{ event.event_no }}{% else %}New event{% endif %}{% endblock %}
+
+{% block pane %}
+<div id="evform">
+  <div id="evTop"></div>
+
+<div class="ev-head">
+    <div>
+      <span class="note">Event No.</span>
+      <strong data-live="event_no">{{ event.event_no|default:"New report" }}</strong>
+      <span id="statusBadge" class="badge ms-2 {% if event.is_finished %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if event.is_finished %}Finished{% else %}Ongoing{% endif %}</span>
+    </div>
+    <div id="saveState" class="save-state saved"><i class="bi bi-cloud-check"></i> <span>Changes save automatically</span></div>
+  </div>
+
+  <!-- Relocated & Restyled Contextual AI Toolbar -->
+  <div class="card mb-3 ai-toolbar-card shadow-sm no-print">
+      <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+          <span class="fw-bold small text-white"><i class="bi bi-stars text-warning"></i> Plant AI Assistant:</span>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="globalRecord(this)" title="Dictate voice notes via Whisper v3">
+              <i class="bi bi-mic"></i> Record Voice
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-dark" onclick="globalPolish('expand')" title="Turn rough field shorthand into formal log notes">
+              <i class="bi bi-journal-text text-info"></i> Expand Shorthand
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-dark" onclick="globalPolish('improve')" title="Clean up grammar and professionalize text">
+              <i class="bi bi-stars text-warning"></i> AI Polish
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="globalPolish('rca')" title="Structure text into a Root Cause Analysis format">
+              <i class="bi bi-diagram-3"></i> Root Cause
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="globalPolish('action_steps')" title="Format into structured maintenance action steps">
+              <i class="bi bi-tools"></i> Action Steps
+          </button>
+          <span id="globalAiStatus" class="text-muted small ms-auto">Click inside any text box, then use AI tools.</span>
+      </div>
+  </div>
+
+  <ol id="stepper" class="stepper no-print">
+    {% for n, t in step_titles %}
+    <li data-step="{{ n }}"><button type="button" data-goto="{{ n }}"><span class="n">{{ n }}</span><span class="t">{{ t }}</span></button></li>
+    {% endfor %}
+  </ol>
+
+  {# ------------------------------------------------------------ 1 #}
+  {% if 1 in steps %}
+  <form class="step-panel d-none" data-step="1" autocomplete="off" novalidate>{% csrf_token %}
+    <section class="sec">
+      <h2 class="sec-title"><span class="num">1</span>Event details</h2>
+      <div class="sec-body"><div class="fgrid">
+        <div class="fcell c3"><div class="lbl">Event No.</div><div class="val auto" data-live="event_no">{{ event.event_no|default:"Assigned on first save" }}</div></div>
+        <div class="fcell c3"><div class="lbl">Issue register ref</div><div class="val auto" data-live="issue_ref">{{ event.issue_register_ref|default:"Assigned on first save" }}</div></div>
+        <div class="fcell c3"><div class="lbl">Reported by</div><div class="val auto">{{ reporter.get_full_name|default:reporter.username }}</div></div>
+        <div class="fcell c3"><div class="lbl">Date / time reported</div><div class="val auto" data-live="reported_at">{% if event %}{{ event.reported_at|date:"d M Y H:i" }}{% else %}Set on first save{% endif %}</div></div>
+        <div class="fcell c12"><div class="lbl">Company / role</div><div class="val auto">{{ event.reporter_company_role|default:reporter.company_role|default:"-" }}</div></div>
+
+        {% include "events/_cell.html" with f=f1.event_date cls="c3" %}
+        {% include "events/_cell.html" with f=f1.time_started cls="c3" %}
+        {% include "events/_cell.html" with f=f1.time_ended cls="c3" %}
+        {% include "events/_cell.html" with f=f1.is_ongoing cls="c3" %}
+        {% include "events/_cell.html" with f=f1.site cls="c4" %}
+        {% include "events/_cell.html" with f=f1.km_marker cls="c4" %}
+        {% include "events/_cell.html" with f=f1.shift cls="c4" %}
+        {% include "events/_cell.html" with f=f1.crew cls="c6" %}
+        {% include "events/_cell.html" with f=f1.witnesses cls="c6" %}
+        {% include "events/_cell.html" with f=f1.witnesses_other cls="c12" %}
+      </div></div>
+    </section>
+  </form>
+  {% endif %}
+
+  {# ------------------------------------------------------------ 2 #}
+  {% if 2 in steps %}
+  <form class="step-panel d-none" data-step="2" autocomplete="off" novalidate>{% csrf_token %}
+    <section class="sec">
+      <h2 class="sec-title"><span class="num">2</span>Type of event <span class="small fw-normal ms-2">tick all that apply</span></h2>
+      <div class="sec-body"><div class="fgrid">
+        {% include "events/_cell.html" with f=f2.event_types cls="c12" %}
+        {% include "events/_cell.html" with f=f2.event_type_other cls="c12" %}
+        <div class="fcell c12"><div class="val note"><i class="bi bi-exclamation-triangle-fill text-danger"></i> <strong>Safety / HSE incident:</strong> also report it under the WPU Incident Management Procedure and tell your Supervisor immediately.</div></div>
+      </div></div>
+    </section>
+  </form>
+  {% endif %}
+
+{# ------------------------------------------------------------ 3 #}
+  {% if 3 in steps %}
+  <form class="step-panel d-none" data-step="3" autocomplete="off" novalidate>{% csrf_token %}
+    <section class="sec">
+      <h2 class="sec-title"><span class="num">3</span>What happened</h2>
+      <div class="sec-body"><div class="fgrid">
+        {% include "events/_cell.html" with f=f3.description cls="c12" %}
+
+        {% include "events/_cell.html" with f=f3.cause cls="c6" %}
+        {% include "events/_cell.html" with f=f3.action_taken cls="c6" %}
+      </div></div>
+    </section>
+  </form>
+  {% endif %}
+
+  {# ------------------------------------------------------------ 4 #}
+  {% if 4 in steps %}
+  <form class="step-panel d-none" data-step="4" autocomplete="off" novalidate>{% csrf_token %}
+    <section class="sec">
+      <h2 class="sec-title"><span class="num">4</span>Delay impact</h2>
+      <div class="sec-body"><div class="fgrid">
+        {% include "events/_cell.html" with f=f4.delay_status cls="c12" %}
+        {% include "events/_cell.html" with f=f4.delay_from cls="c3" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.delay_to cls="c3" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.hours_lost cls="c3" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.people_stood_down cls="c3" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.vehicles cls="c6" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.plant_on_standby cls="c6" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.activities_affected cls="c8" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.on_critical_path cls="c4" show="delay_status=yes|potential" %}
+        {% include "events/_cell.html" with f=f4.caused_by cls="c6" show="delay_status=yes|potential" %}
+        
+        {% include "events/_cell.html" with f=f4.mitigation cls="c6" show="delay_status=yes|potential" %}
+
+      </div></div>
+    </section>
+  </form>
+  {% endif %}
+  {# ------------------------------------------------------------ 5 #}
+  {% if 5 in steps %}
+  <form class="step-panel d-none" data-step="5" autocomplete="off" novalidate>{% csrf_token %}
+    <section class="sec">
+      <h2 class="sec-title"><span class="num">5</span>Evidence <span class="small fw-normal ms-2">required if there is a delay</span></h2>
+      <div class="sec-body"><div class="fgrid">
+        {% include "events/_cell.html" with f=f5.photos cls="c3" %}
+        {% include "events/_cell.html" with f=f5.photo_count cls="c3" show="photos=yes" %}
+        {% include "events/_cell.html" with f=f5.video cls="c3" %}
+        {% include "events/_cell.html" with f=f5.video_count cls="c3" show="video=yes" %}
+        {% include "events/_cell.html" with f=f5.uploaded_to cls="c6" %}
+        {% include "events/_cell.html" with f=f5.uploaded_to_other cls="c6" %}
+        {% include "events/_cell.html" with f=f5.file_names_link cls="c12" %}
+        {% include "events/_cell.html" with f=f5.other_records cls="c12" %}
+        <div class="fcell c12"><div class="val note">Name files <strong>EV-No_Site_Date_01</strong>. Take photos before anything is moved, include the site sign or km marker, keep the date/time stamp, and shoot the whole area first, then the detail.</div></div>
+      </div></div>
+    </section>
+  </form>
+  {% endif %}
+
+  {# ------------------------------------------------------------ 6 #}
+  {% if 6 in steps %}
+  <form class="step-panel d-none" data-step="6" autocomplete="off" novalidate>{% csrf_token %}
+    <section class="sec">
+      <h2 class="sec-title"><span class="num">6</span>Client notification</h2>
+      <div class="sec-body"><div class="fgrid">
+        {% include "events/_cell.html" with f=f6.client_notified cls="c12" %}
+        {% include "events/_cell.html" with f=f6.notified_who cls="c4" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.notified_bhp_role cls="c4" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.notified_how cls="c4" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.notified_at cls="c6" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.notification_reference cls="c6" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.not_notified_reason cls="c8" show="client_notified=no" %}
+        {% include "events/_cell.html" with f=f6.will_notify_when cls="c4" show="client_notified=no" %}
+        {% include "events/_cell.html" with f=f6.client_response cls="c12" %}
+        {% include "events/_cell.html" with f=f6.direction_confirmed cls="c6" %}
+        {% include "events/_cell.html" with f=f6.direction_confirmed_ref cls="c6" show="direction_confirmed=yes" %}
+        <div class="fcell c12"><div class="val note">A verbal direction is not enough. The Construction Manager must confirm any BHP-directed change, stand-down or resequence to BHP in writing the same day.</div></div>
+      </div></div>
+    </section>
+  </form>
+  {% endif %}
+
+  {# ------------------------------------------------------------ 7 #}
+  {% if 7 in steps %}
+  <form class="step-panel d-none" data-step="7" autocomplete="off" novalidate>{% csrf_token %}
+    <section class="sec">
+      <h2 class="sec-title"><span class="num">7</span>Contract &amp; cost impact <span class="small fw-normal ms-2">Construction Manager completes</span></h2>
+      <div class="sec-body"><div class="fgrid">
+        {% include "events/_cell.html" with f=f7.potential_claim cls="c6" %}
+        {% include "events/_cell.html" with f=f7.notice_of_delay cls="c6" %}
+        {% include "events/_cell.html" with f=f7.notice_ref cls="c4" %}
+        {% include "events/_cell.html" with f=f7.notice_date cls="c4" %}
+        {% include "events/_cell.html" with f=f7.cost_estimate cls="c2" %}
+        {% include "events/_cell.html" with f=f7.time_estimate_days cls="c2" %}
+        {% include "events/_cell.html" with f=f7.recorded_in cls="c12" %}
+        <div class="fcell c12">
+          <div class="lbl">Follow-up actions</div>
+          <div class="val">
+            <div id="fuRows">{% for fu in followups %}{% include "events/_followup_row.html" %}{% endfor %}</div>
+            <button type="button" id="fuAdd" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-plus-lg"></i> Add action</button>
+            <div class="invalid-feedback d-block" data-err="fu_action"></div>
+            <div class="invalid-feedback d-block" data-err="fu_due"></div>
+          </div>
+        </div>
+      </div></div>
+    </section>
+  </form>
+  <template id="fuTemplate">{% include "events/_followup_row.html" with fu=None %}</template>
+  {% endif %}
+
+  <div class="step-nav no-print">
+    <button type="button" id="btnBack" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</button>
+    <div class="text-center small text-muted" id="stepLabel"></div>
+    <button type="button" id="btnNext" class="btn btn-primary">Next <i class="bi bi-arrow-right"></i></button>
+    {% if not event.is_finished %}<button type="button" id="btnSubmit" class="btn btn-success d-none"><i class="bi bi-send-check"></i> Submit event</button>{% endif %}
+  </div>
+  {% if event.is_finished %}<p class="note text-center mt-2">This event is submitted. Any change you make is saved and logged.</p>{% endif %}
+</div>
+
+{{ ev_config|json_script:"ev-config" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/event_form.js' %}"></script>
+
+<style>
+/* ======================================================================
+   Choice chips: .choice-row holds  <input> + <label class="btn ...">  pairs.
+   The native input is hidden (still keyboard-focusable); the label is the chip.
+   ====================================================================== */
+.fcell .choice-row {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: .5rem;
+  position: relative;
+}
+.fcell .choice-row > input {
+  position: absolute;
+  opacity: 0;
+  width: 1px; height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+.fcell .choice-row > input + label {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 0;
+  padding: .42rem .8rem .42rem .6rem;
+  border: 1px solid #D9DCE1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1A1A1A;
+  font-size: .875rem;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color .12s, border-color .12s;
+}
+.fcell .choice-row > input + label::before {
+  content: "";
+  flex: none;
+  width: 1rem; height: 1rem;
+  border: 1.5px solid #9AA0A9;
+  border-radius: 3px;
+  background: #fff center / 80% no-repeat;
+}
+.fcell .choice-row > input[type=radio] + label::before { border-radius: 50%; }
+
+.fcell .choice-row > input + label:hover,
+.fcell .choice-row > input + label:active {
+  border-color: #1A1A1A !important;
+  background-color: #F6F7F9 !important;
+  color: #1A1A1A !important;
+}
+.fcell .choice-row > input:checked + label,
+.fcell .choice-row > input:checked + label:hover,
+.fcell .choice-row > input:checked + label:active {
+  border-color: #C8102E !important;
+  background-color: #FDF0F2 !important;
+  color: #1A1A1A !important;
+  box-shadow: inset 0 0 0 1px #C8102E;
+}
+.fcell .choice-row > input[type=checkbox]:checked + label::before {
+  border-color: #C8102E;
+  background-color: #C8102E;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+}
+.fcell .choice-row > input[type=radio]:checked + label::before {
+  border-color: #C8102E;
+  background-color: #C8102E;
+  box-shadow: inset 0 0 0 3px #fff;
+}
+.fcell .choice-row > input:focus-visible + label {
+  outline: 2px solid #1A1A1A;
+  outline-offset: 2px;
+}
+.fcell .choice-row > input:disabled + label { opacity: .55; cursor: not-allowed; }
+
+/* ======================================================================
+   Review-before-submit modal
+   ====================================================================== */
+.rv-popup.swal2-popup { padding: 0; overflow: hidden; }
+.rv-popup .swal2-html-container.rv-scroll { margin: 0 !important; padding: 0 !important; max-height: 62vh; overflow: auto; }
+.rv-popup .swal2-actions { margin: 0; width: 100%; box-sizing: border-box; padding: .9rem 1.25rem; border-top: 1px solid #D9DCE1; justify-content: flex-end; }
+.rv { text-align: left; font-family: Arial, Helvetica, sans-serif; color: #1A1A1A; }
+.rv-head { position: sticky; top: 0; z-index: 2; background: #1A1A1A; color: #fff; padding: .9rem 3rem .9rem 1.25rem; }
+.rv-title { font-size: 1.1rem; font-weight: 700; }
+.rv-sub { font-size: .8rem; color: #C9CDD3; margin-top: .15rem; }
+.rv-sec { margin: 1rem 1.25rem 0; border: 1px solid #D9DCE1; border-radius: 6px; overflow: hidden; }
+.rv-sec:last-child { margin-bottom: 1rem; }
+.rv-sec-h { display: flex; align-items: center; gap: .6rem; background: #EEF0F3; padding: .5rem .75rem; }
+.rv-num { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: #C8102E; color: #fff; font-size: .75rem; font-weight: 700; }
+.rv-sec-t { flex: 1; font-weight: 700; font-size: .92rem; }
+.rv-edit { border: 0; background: none; color: #C8102E; font-size: .8rem; font-weight: 600; padding: .2rem .5rem; border-radius: 4px; cursor: pointer; }
+.rv-edit:hover { background: #fff; }
+.rv-row { display: grid; grid-template-columns: minmax(120px, 34%) 1fr; border-top: 1px solid #E3E6EA; }
+.rv-k { padding: .45rem .75rem; font-size: .78rem; font-weight: 600; color: #4A505A; background: #FAFBFC; }
+.rv-v { padding: .45rem .75rem; font-size: .88rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-v.empty { color: #8A909A; }
+@media (max-width: 575px) {
+  .rv-row { grid-template-columns: 1fr; }
+  .rv-k { padding-bottom: 0; background: none; }
+}
+</style>
+
+<script>
+/* ======================================================================
+   Review before submit
+   Shows the whole report from the live form values before anything is sent.
+   ====================================================================== */
+(function () {
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+
+  // visible = no ancestor between the cell and its step form is display:none
+  function isHidden(node, root) {
+    for (let n = node; n && n !== root; n = n.parentElement) {
+      if (n.hidden || getComputedStyle(n).display === 'none') return true;
+    }
+    return false;
+  }
+
+  function labelOf(input) {
+    if (input.labels && input.labels[0]) return clean(input.labels[0].textContent);
+    const sib = input.nextElementSibling;
+    if (sib && sib.tagName === 'LABEL') return clean(sib.textContent);
+    return input.value;
+  }
+
+  function fieldText(f) {
+    // flatpickr keeps the ISO value in the real input; show what the user sees
+    if (f._flatpickr && f._flatpickr.altInput) return f._flatpickr.altInput.value.trim();
+    return (f.value || '').trim();
+  }
+
+  function cellValue(cell) {
+    const fields = [...cell.querySelectorAll('input, select, textarea')]
+      .filter(f => f.name && f.name !== 'csrfmiddlewaretoken');
+    if (!fields.length) {
+      const v = cell.querySelector('.val');
+      return { text: clean(v ? v.textContent : ''), auto: true };
+    }
+    const groups = {};
+    fields.forEach(f => (groups[f.name] = groups[f.name] || []).push(f));
+    const parts = [];
+    Object.values(groups).forEach(list => {
+      const first = list[0];
+      if (first.type === 'checkbox' && list.length === 1) {
+        parts.push(first.checked ? 'Yes' : 'No');
+      } else if (first.type === 'checkbox' || first.type === 'radio') {
+        list.filter(i => i.checked).forEach(i => parts.push(labelOf(i)));
+      } else if (first.tagName === 'SELECT') {
+        [...first.selectedOptions].filter(o => o.value !== '').forEach(o => parts.push(clean(o.textContent)));
+      } else {
+        const t = fieldText(first);
+        if (t) parts.push(t);
+      }
+    });
+    return { text: parts.join(', '), auto: false };
+  }
+
+  function followUps(form) {
+    const wrap = form.querySelector('#fuRows');
+    if (!wrap) return '';
+    const col = n => [...wrap.querySelectorAll('[name="' + n + '"]')];
+    const acts = col('fu_action'), own = col('fu_owner'), ownName = col('fu_owner_name'),
+          due = col('fu_due'), del = col('fu_delete');
+    const lines = [];
+    acts.forEach((a, i) => {
+      const d = del[i];
+      if (d && (d.type === 'checkbox' || d.type === 'radio' ? d.checked : d.value === '1')) return;
+      let owner = '';
+      const o = own[i];
+      if (o && o.tagName === 'SELECT') owner = o.value ? clean(o.selectedOptions[0].textContent) : '';
+      else if (o) owner = o.value.trim();
+      if (!owner && ownName[i]) owner = ownName[i].value.trim();
+      const dueTxt = due[i] ? fieldText(due[i]) : '';
+      const action = a.value.trim();
+      if (!action && !owner && !dueTxt) return;
+      lines.push([action || '(no description)', owner && 'Owner: ' + owner, dueTxt && 'Due: ' + dueTxt]
+        .filter(Boolean).join('  |  '));
+    });
+    return lines.join('\n');
+  }
+
+  function buildReview() {
+    const root = el('div', 'rv');
+    const head = el('div', 'rv-head');
+    const evNo = clean((document.querySelector('.ev-head [data-live="event_no"]') || {}).textContent) || 'New report';
+    head.append(el('div', 'rv-title', 'Review ' + evNo + ' before submitting'));
+    const sub = el('div', 'rv-sub', 'Check every section. Nothing is sent until you choose Submit report.');
+    head.append(sub);
+    root.append(head);
+
+    let blanks = 0;
+    document.querySelectorAll('form.step-panel').forEach(form => {
+      const title = form.querySelector('.sec-title');
+      let name = '';
+      if (title) {
+        const c = title.cloneNode(true);
+        c.querySelectorAll('.num, .small').forEach(x => x.remove());
+        name = clean(c.textContent);
+      }
+      const step = form.dataset.step;
+      const sec = el('section', 'rv-sec');
+      const sh = el('div', 'rv-sec-h');
+      sh.append(el('span', 'rv-num', step), el('span', 'rv-sec-t', name));
+      const edit = el('button', 'rv-edit', 'Edit');
+      edit.type = 'button';
+      edit.dataset.step = step;
+      sh.append(edit);
+      sec.append(sh);
+
+      form.querySelectorAll('.fcell').forEach(cell => {
+        const lbl = cell.querySelector('.lbl') || cell.querySelector(':scope > label');
+        if (!lbl || isHidden(cell, form)) return;
+        let text, auto = false;
+        if (cell.querySelector('#fuRows')) text = followUps(form);
+        else ({ text, auto } = cellValue(cell));
+        const row = el('div', 'rv-row');
+        row.append(el('div', 'rv-k', clean(lbl.textContent).replace(/\*$/, '').trim()));
+        const v = el('div', 'rv-v', text || 'Not entered');
+        if (!text) { v.classList.add('empty'); if (!auto) blanks++; }
+        row.append(v);
+        sec.append(row);
+      });
+      root.append(sec);
+    });
+    if (blanks) sub.textContent += '  ' + blanks + ' field' + (blanks === 1 ? '' : 's') + ' left blank.';
+    return root;
+  }
+
+  function showReview() {
+    const body = buildReview();
+    body.addEventListener('click', (e) => {
+      const b = e.target.closest('.rv-edit');
+      if (!b) return;
+      Swal.close();
+      setTimeout(() => {
+        const go = document.querySelector('#stepper [data-goto="' + b.dataset.step + '"]');
+        if (go) go.click();
+      }, 60);
+    });
+    return Swal.fire({
+      html: body,
+      width: 'min(96vw, 920px)',
+      showCloseButton: true,
+      showCancelButton: true,
+      reverseButtons: true,
+      focusCancel: true,            // Enter never submits by accident
+      allowOutsideClick: false,
+      confirmButtonText: '<i class="bi bi-send-check"></i> Submit report',
+      cancelButtonText: '<i class="bi bi-pencil"></i> Back to edit',
+      confirmButtonColor: '#198754',
+      cancelButtonColor: '#6c757d',
+      customClass: { popup: 'rv-popup', htmlContainer: 'rv-scroll' }
+    });
+  }
+
+  /* Works with the old AND the patched event_form.js:
+     1. Capture the click on #btnSubmit before any other handler and show the review.
+     2. After "Submit report", re-fire the click; the form's own save/validate/submit
+        code runs, but its extra "Submit this event?" prompt is auto-accepted (once),
+        so there is exactly one confirmation: this modal. */
+  let confirmed = false, pendingSkip = false;
+
+  function patchWpuConfirm() {
+    if (typeof WPU === 'undefined' || !WPU.confirm || WPU.__evPatched) return;
+    const orig = WPU.confirm;
+    WPU.confirm = function (msg, opts) {
+      if (pendingSkip && opts && opts.title === 'Submit this event?') {
+        pendingSkip = false;
+        return Promise.resolve(true);
+      }
+      return orig.apply(this, arguments);
+    };
+    WPU.__evPatched = true;
+  }
+
+  // used by the patched event_form.js (after save + validation)
+  window.EvReview = {
+    confirm: () => {
+      if (pendingSkip) { pendingSkip = false; return Promise.resolve(true); }
+      return showReview().then(r => r.isConfirmed);
+    }
+  };
+
+  window.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('#btnSubmit');
+    if (!btn) return;
+    if (confirmed) { confirmed = false; return; }   // re-fired click: let the form's handler run
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (Swal.isVisible()) return;
+    pendingSkip = false;
+    showReview().then(res => {
+      if (!res.isConfirmed) return;
+      patchWpuConfirm();
+      pendingSkip = true;
+      confirmed = true;
+      btn.click();
+    });
+  }, true);
+})();
+</script>
+
+<script>
+/* ======================================================================
+   AI assistant toolbar
+   ====================================================================== */
+let activeTextarea = null;
+let lastAiTarget = null;
+let mediaRecorder = null;
+let audioChunks = [];
+const aiPrev = new WeakMap();   // textarea -> value before the last AI change
+
+function aiStatus(html) {
+  const s = document.getElementById('globalAiStatus');
+  if (s) s.innerHTML = html;
+}
+function aiSetValue(target, text, append) {
+  aiPrev.set(target, target.value);
+  lastAiTarget = target;
+  target.value = append && target.value ? target.value + ' ' + text : text;
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+  target.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function undoAi() {
+  if (!lastAiTarget || !aiPrev.has(lastAiTarget)) return;
+  lastAiTarget.value = aiPrev.get(lastAiTarget);
+  aiPrev.delete(lastAiTarget);
+  lastAiTarget.dispatchEvent(new Event('input', { bubbles: true }));
+  lastAiTarget.dispatchEvent(new Event('change', { bubbles: true }));
+  aiStatus('<i class="bi bi-arrow-counterclockwise text-secondary"></i> Reverted to your previous text.');
+}
+const UNDO_LINK = ' <a href="#" onclick="undoAi(); return false;">Undo</a>';
+
+// Track the focused textarea and show its label
+document.addEventListener('focusin', (e) => {
+  if (e.target.tagName !== 'TEXTAREA') return;
+  activeTextarea = e.target;
+  let fieldLabel = 'Text Box';
+  const labelEl = document.querySelector(`label[for="${activeTextarea.id}"]`) ||
+                  activeTextarea.closest('.fcell, .mb-3')?.querySelector('label, .lbl');
+  if (labelEl) fieldLabel = labelEl.textContent.trim();
+  else if (activeTextarea.placeholder) fieldLabel = activeTextarea.placeholder;
+  aiStatus(`<i class="bi bi-check-circle text-success"></i> Active field: <strong>${fieldLabel}</strong>`);
+});
+
+// 1. Voice recording -> Whisper
+async function globalRecord(btn) {
+  // second click = stop
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  if (!activeTextarea) {
+    Swal.fire({ icon: 'warning', title: 'No field selected', text: 'Click inside a text box first, then record.' });
+    return;
+  }
+  const target = activeTextarea;   // keep the field that was active when recording started
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+      .find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const type = mediaRecorder.mimeType || mime || 'audio/webm';
+    const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+
+    mediaRecorder.ondataavailable = (ev) => { if (ev.data.size > 0) audioChunks.push(ev.data); };
+
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());   // release the mic (turns off the browser's recording indicator)
+      btn.classList.replace('btn-danger', 'btn-outline-danger');
+      btn.innerHTML = '<i class="bi bi-mic"></i> Record Voice';
+      aiStatus('<i class="bi bi-soundwave text-warning"></i> Transcribing...');
+
+      const fd = new FormData();
+      fd.append('audio', new Blob(audioChunks, { type }), 'recording.' + ext);
+      fd.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+      try {
+        const res = await fetch("{% url 'ai_transcribe' %}", { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.text) {
+          aiSetValue(target, data.text.trim(), true);
+          aiStatus('<i class="bi bi-check2-all text-success"></i> Transcription added.' + UNDO_LINK);
+        } else {
+          Swal.fire({ icon: 'error', title: 'Transcription error', text: data.error || 'Unknown error.' });
+          aiStatus('<i class="bi bi-exclamation-triangle text-danger"></i> Transcription error.');
+        }
+      } catch (err) {
+        console.error(err);
+        Swal.fire({ icon: 'error', title: 'Request failed', text: 'Could not reach the transcription service.' });
+        aiStatus('<i class="bi bi-x-circle text-danger"></i> Transcription failed.');
+      }
+    };
+
+    mediaRecorder.start();
+    btn.classList.replace('btn-outline-danger', 'btn-danger');
+    btn.innerHTML = '<i class="bi bi-stop-fill"></i> Stop Recording';
+    aiStatus('<i class="bi bi-mic-fill text-danger"></i> Listening... press Stop when done.');
+  } catch (err) {
+    console.error(err);
+    Swal.fire({ icon: 'error', title: 'Microphone unavailable', text: 'Allow microphone access for this site in your browser settings.' });
+  }
+}
+
+// 2. Polish / summarize
+async function globalPolish(action) {
+  if (!activeTextarea || !activeTextarea.value.trim()) {
+    Swal.fire({ icon: 'warning', title: 'Empty field', text: 'Select a text box that already has text.' });
+    return;
+  }
+  const target = activeTextarea;
+  aiStatus('<span class="spinner-border spinner-border-sm text-warning"></span> Processing...');
+
+  const fd = new FormData();
+  fd.append('text', target.value);
+  fd.append('action', action);
+  fd.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+  try {
+    const res = await fetch("{% url 'ai_assist' %}", { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.result) {
+      aiSetValue(target, data.result, false);
+      aiStatus('<i class="bi bi-check2-all text-success"></i> Text updated. Check the facts.' + UNDO_LINK);
+    } else {
+      Swal.fire({ icon: 'error', title: 'AI error', text: data.error || 'Unknown error.' });
+      aiStatus('<i class="bi bi-exclamation-triangle text-danger"></i> AI error.');
+    }
+  } catch (err) {
+    console.error(err);
+    Swal.fire({ icon: 'error', title: 'Request failed', text: 'Could not reach the AI service.' });
+    aiStatus('<i class="bi bi-x-circle text-danger"></i> Request failed.');
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,12 @@
+<div class="fu-row">
+  <input type="hidden" name="fu_id" value="{{ fu.pk|default:'' }}">
+  <input type="hidden" name="fu_delete" value="0">
+  <textarea name="fu_action" class="form-control fu-action" rows="2" placeholder="Action">{{ fu.action }}</textarea>
+  <select name="fu_owner" class="form-select" data-ts placeholder="Owner (roster)">
+    <option value=""></option>
+    {% for s in staff_list %}<option value="{{ s.pk }}"{% if fu and fu.owner_id == s.pk %} selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <input type="text" name="fu_owner_name" class="form-control" placeholder="Other owner" value="{{ fu.owner_name }}">
+  <input type="text" name="fu_due" class="form-control" data-date placeholder="Due date" value="{{ fu.due_date|date:'Y-m-d' }}">
+  <button type="button" class="btn btn-outline-danger fu-del" aria-label="Remove action"><i class="bi bi-trash"></i></button>
+</div>

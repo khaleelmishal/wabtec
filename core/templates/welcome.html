@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Welcome{% endblock %}
+
+{% block content %}
+<div class="row g-4 py-2">
+
+  <!-- Login first on phones, second on desktop -->
+  <div class="col-lg-5 order-1 order-lg-2">
+    <section class="sec" x-data="{ show: false, busy: false }" @pageshow.window="busy = false">
+      <h2 class="sec-title"><span class="num"><i class="bi bi-lock-fill"></i></span>Sign in</h2>
+      <div class="sec-body p-3">
+        <form method="post" action="{% url 'welcome' %}" novalidate @submit="busy = true">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next }}">
+
+          {% if form.non_field_errors %}
+            <div class="alert alert-danger py-2 small" role="alert">
+              <i class="bi bi-exclamation-triangle-fill"></i> {{ form.non_field_errors.0 }}
+            </div>
+          {% endif %}
+
+          <div class="mb-3">
+            <label for="{{ form.username.id_for_label }}" class="form-label small fw-bold text-uppercase">Username</label>
+            {{ form.username }}
+          </div>
+
+          <div class="mb-3">
+            <label for="{{ form.password.id_for_label }}" class="form-label small fw-bold text-uppercase">Password</label>
+            <div class="input-group">
+              {{ form.password }}
+              <button class="btn btn-outline-secondary" type="button" @click="show = !show" aria-label="Show or hide password">
+                <i class="bi" :class="show ? 'bi-eye-slash' : 'bi-eye'"></i>
+              </button>
+            </div>
+          </div>
+
+          <button class="btn btn-primary w-100" type="submit" :disabled="busy">
+            <span x-show="!busy"><i class="bi bi-box-arrow-in-right"></i> Sign in</span>
+            <span x-show="busy" x-cloak>Signing in...</span>
+          </button>
+        </form>
+        <p class="note mt-3 mb-0">No account, or forgotten your password? Contact your site administrator.</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- About -->
+  <div class="col-lg-7 order-2 order-lg-1">
+    <h2 class="h4 fw-bold mb-3">Welcome to the WPU Site Event Register</h2>
+    <p class="lead-box mb-4">
+      This is where Wabtec employees record what happens on site, so the information is gathered
+      once, in the same format, on the day it happens.
+    </p>
+
+    <div class="about-point">
+      <i class="bi bi-pencil-square"></i>
+      <div><h3>One form, filled on the day</h3>
+        <p>Record any event that stops, slows or changes work, or that BHP directs, whether or not it causes a delay.</p></div>
+    </div>
+    <div class="about-point">
+      <i class="bi bi-camera"></i>
+      <div><h3>Evidence with the record</h3>
+        <p>Note the photos and videos taken, where they are stored, and any other supporting records.</p></div>
+    </div>
+    <div class="about-point">
+      <i class="bi bi-chat-left-text"></i>
+      <div><h3>Client communication captured</h3>
+        <p>Log who at BHP was told, how, and what they directed.</p></div>
+    </div>
+    <div class="about-point">
+      <i class="bi bi-shield-check"></i>
+      <div><h3>Tracked and controlled</h3>
+        <p>Every submission, view and edit is logged. Contract and cost details are visible to Construction Managers only.</p></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
