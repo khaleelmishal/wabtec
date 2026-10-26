@@ -1,0 +1,22 @@
+name: Deploy to PythonAnywhere
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+  # PythonAnywhere API actions must run on ubuntu-latest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Re-Deploy WebApp on PythonAnywhere
+        uses: kazluBR/pythonanywhere-redeploy-action@v1.2.0
+        with:
+          host: "www.pythonanywhere.com" # Change to eu.pythonanywhere.com if your account is on the EU server
+          username: ${{ secrets.PA_USERNAME }}
+          api_token: ${{ secrets.PA_API_TOKEN }}
+          domain_name: ${{ secrets.PA_DOMAIN }}
+          django_settings: "wabtec.settings"
