@@ -12,6 +12,17 @@ Always save through the helpers so audit fields and logs are filled:
     event.log_opened(request.user, request)              # in the detail view
     event.set_m2m("event_types", ids, user=..., request=...)
 
+Structure (what links to what)
+------------------------------
+Project  1 --- * Activity   (an Activity can have a parent: summary groups > tasks / milestones)
+Activity 1 --- * Event      (Event.project is copied from the activity on save, so both are set)
+Project  1 --- * Plant      (the plant currently allocated to the project; optional)
+Event    * --- * Plant      (plant / vehicles on standby)
+
+After changing this file:  python manage.py makemigrations events   (answer "y" to the rename questions:
+Vehicle -> Plant, Event.vehicles -> Event.plant), then migrate, then run
+    from events.models import seed_options, seed_wpu_project; seed_options(); seed_wpu_project()
+
 People and access
 -----------------
 Staff    = a person from the roster (name, company, job title, email).
@@ -24,6 +35,7 @@ Access   = every account can log in and report events (basic access).
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models.functions import Now
 
@@ -176,6 +188,7 @@ class Option(AuditModel):
         NOTIFY_HOW = "notify_how", "Client notification method"
         CLAIM = "claim", "Potential claim"
         RECORDED_IN = "recorded_in", "Recorded in"
+        PLANT_TYPE = "plant_type", "Plant type"
 
     category = models.CharField(max_length=14, choices=Category.choices, db_index=True)
     code = models.SlugField(max_length=60)
@@ -239,7 +252,7 @@ class NoticeOfDelay(models.TextChoices):
 
 
 # ==========================================================================
-# People and vehicles (loaded from the roster workbook - see import_roster)
+# People, projects, programme activities and plant (people / plant loaded by import_roster)
 # ==========================================================================
 class Company(AuditModel):
     name = models.CharField(max_length=120, unique=True)
@@ -285,13 +298,130 @@ class Staff(AuditModel):
         return user
 
 
-class Vehicle(AuditModel):
+# ==========================================================================
+# Projects and programme activities
+# ==========================================================================
+class Project(AuditModel):
+    """A contract / job (WPU is one). Activities, events and plant hang off a project,
+    so a second project of the same kind is just another row here."""
+
+    class Status(models.TextChoices):
+        PLANNING = "planning", "Planning"
+        ACTIVE = "active", "Active"
+        ON_HOLD = "on_hold", "On hold"
+        COMPLETED = "completed", "Completed"
+
+    code = models.SlugField(max_length=20, unique=True, help_text="Short code, e.g. WPU. Stored in capitals.")
+    name = models.CharField(max_length=200)
+    client = models.ForeignKey(Company, null=True, blank=True, on_delete=models.PROTECT, related_name="projects")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    programme_data_date = models.DateField(null=True, blank=True,
+                                           help_text="Data date of the last programme (Primavera P6) update.")
+    event_no_prefix = models.CharField(max_length=20, blank=True,
+                                       help_text="Prefix for event numbers. Blank = '<CODE>-EV-'.")
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+    def save(self, *args, **kwargs):
+        self.code = (self.code or "").strip().upper()
+        super().save(*args, **kwargs)
+
+    @property
+    def event_prefix(self):
+        return self.event_no_prefix or f"{self.code}-EV-"
+
+    def make_event_no(self, pk):
+        return f"{self.event_prefix}{pk:04d}"
+
+
+class Activity(AuditModel):
+    """One row of the project programme (Primavera P6 style).
+
+    Summary rows (e.g. "Site Works" > "24.1 km LX" > "Civil") are Activities too: they point at
+    their parent, so the whole programme is one tree and an event can be linked at any level.
+    The start / finish "is_actual" flags are the "A" shown after dates on the P6 print."""
+
+    class Kind(models.TextChoices):
+        TASK = "task", "Task"
+        MILESTONE = "milestone", "Milestone"
+        SUMMARY = "summary", "Summary / group"
+
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="activities")
+    parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="children")
+    activity_id = models.CharField("Activity ID", max_length=30, blank=True,
+                                   help_text="Programme ID, e.g. ALX-7890. Blank for summary rows without one.")
+    name = models.CharField(max_length=300)
+    kind = models.CharField(max_length=9, choices=Kind.choices, default=Kind.TASK)
+    percent_complete = models.DecimalField(max_digits=5, decimal_places=2, default=0,
+                                           validators=[MinValueValidator(0), MaxValueValidator(100)])
+    remaining_duration = models.PositiveIntegerField(null=True, blank=True, help_text="Days.")
+    start_date = models.DateField(null=True, blank=True)
+    start_is_actual = models.BooleanField(default=False)
+    finish_date = models.DateField(null=True, blank=True)
+    finish_is_actual = models.BooleanField(default=False)
+    sort_order = models.PositiveIntegerField(default=0, help_text="Row order in the programme.")
+    notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["project", "sort_order", "pk"]
+        verbose_name_plural = "activities"
+        constraints = [
+            models.UniqueConstraint(fields=["project", "activity_id"], condition=~models.Q(activity_id=""),
+                                    name="uniq_activity_id_per_project"),
+        ]
+        indexes = [models.Index(fields=["project", "parent"])]
+
+    def __str__(self):
+        return f"{self.activity_id} - {self.name}" if self.activity_id else self.name
+
+    @property
+    def breadcrumb(self):
+        """'Site Works > 24.1 km LX > Civil > Site set up...' (one query per level)."""
+        names, node, seen = [], self, set()
+        while node is not None and node.pk not in seen:
+            seen.add(node.pk)
+            names.append(node.name)
+            node = node.parent
+        return " > ".join(reversed(names))
+
+    def clean(self):
+        super().clean()
+        if self.parent_id:
+            if self.parent.project_id != self.project_id:
+                raise ValidationError({"parent": "The parent must be in the same project."})
+            node = self.parent
+            while node is not None:  # no loops
+                if self.pk and node.pk == self.pk:
+                    raise ValidationError({"parent": "An activity cannot sit under itself."})
+                node = node.parent
+
+
+# ==========================================================================
+# Plant: anything of value that is used on a project (ute, truck, excavator, crane, generator...)
+# Kind of plant = Option category "plant_type" (editable in the admin).
+# ==========================================================================
+class Plant(AuditModel):
     class Assignment(models.TextChoices):
         DEDICATED = "dedicated", "Dedicated"
         ASSIGNED = "assigned", "Assigned"
         POOL = "pool", "Pool"
 
     asset_id = models.CharField(max_length=20, unique=True)
+    plant_type = models.ForeignKey(Option, null=True, blank=True, on_delete=models.PROTECT, related_name="+",
+                                   limit_choices_to=_opt("plant_type"))
+    owner = models.ForeignKey(Company, null=True, blank=True, on_delete=models.SET_NULL, related_name="plant",
+                              help_text="Owner or hire company.")
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL, related_name="plant",
+                                help_text="Project it is currently allocated to.")
     registration = models.CharField(max_length=20, blank=True)
     make_model = models.CharField("Model", max_length=80, blank=True)
     ivms_no = models.CharField("IVMS #", max_length=30, blank=True)
@@ -312,6 +442,7 @@ class Vehicle(AuditModel):
 
     class Meta:
         ordering = ["asset_id"]
+        verbose_name_plural = "plant"
 
     def __str__(self):
         extra = " ".join(p for p in (self.make_model, f"({self.registration})" if self.registration else "") if p)
@@ -346,6 +477,12 @@ class Event(LoggedModel):
     reporter_company = models.ForeignKey(Company, null=True, editable=False, on_delete=models.SET_NULL, related_name="+")
     reporter_company_role = models.CharField("Company / role", max_length=240, blank=True, editable=False,
                                              help_text="Snapshot of the reporter's company / job title when reported.")
+    # where it sits in the programme: Event -> Activity -> Project.
+    # Set the activity and the project is copied from it on save; project alone is fine for events
+    # that do not belong to one activity.
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.PROTECT, related_name="events")
+    activity = models.ForeignKey(Activity, null=True, blank=True, on_delete=models.PROTECT, related_name="events",
+                                 verbose_name="Programme activity")
     # entered
     event_date = models.DateField("Date of event", null=True, blank=True)
     time_started = models.TimeField("Time started", null=True, blank=True)
@@ -374,8 +511,8 @@ class Event(LoggedModel):
     delay_to = models.TimeField(null=True, blank=True)
     hours_lost = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     people_stood_down = models.PositiveIntegerField(null=True, blank=True)
-    vehicles = models.ManyToManyField(Vehicle, blank=True, related_name="+", verbose_name="Vehicles on standby")
-    plant_on_standby = models.TextField("Other plant / equipment on standby", blank=True)
+    plant = models.ManyToManyField(Plant, blank=True, related_name="+", verbose_name="Plant / vehicles on standby")
+    plant_on_standby = models.TextField("Other plant / equipment on standby (not in the register)", blank=True)
     activities_affected = models.TextField("Programme ID / description", blank=True)
     on_critical_path = models.CharField(max_length=7, choices=CriticalPath.choices, default=CriticalPath.UNKNOWN)
     caused_by = models.CharField(max_length=6, choices=CausedBy.choices, blank=True)
@@ -409,7 +546,8 @@ class Event(LoggedModel):
 
     class Meta:
         ordering = ["-event_date", "-pk"]
-        indexes = [models.Index(fields=["event_date"]), models.Index(fields=["site", "event_date"])]
+        indexes = [models.Index(fields=["event_date"]), models.Index(fields=["site", "event_date"]),
+                   models.Index(fields=["project", "event_date"])]
 
     def __str__(self):
         return self.event_no or f"Event (unsaved) {self.event_date}"
@@ -431,6 +569,11 @@ class Event(LoggedModel):
         bits = [str(self.site) if self.site_id else "", (self.description or "").strip().replace("\n", " ")[:60]]
         return " - ".join(b for b in bits if b) or "Untitled report"
 
+    def clean(self):
+        super().clean()
+        if self.activity_id and self.project_id and self.activity.project_id != self.project_id:
+            raise ValidationError({"activity": "This activity belongs to a different project."})
+
     def completeness_errors(self):
         """What is still missing before the event can be submitted. {field: [messages]}"""
         e = {}
@@ -450,13 +593,15 @@ class Event(LoggedModel):
 
     def save(self, *args, user=None, request=None, **kwargs):
         adding = self._state.adding
+        if self.activity_id:  # the activity decides the project
+            self.project_id = self.activity.project_id
         if adding and user is not None and getattr(user, "is_authenticated", False):
             self.reported_by = user
             self.reporter_company = user.company
             self.reporter_company_role = user.company_role
         super().save(*args, user=user, request=request, **kwargs)
         if adding and not self.event_no:  # numbers come from the primary key: unique, no race
-            self.event_no = EVENT_NO_FORMAT.format(self.pk)
+            self.event_no = self.project.make_event_no(self.pk) if self.project_id else EVENT_NO_FORMAT.format(self.pk)
             self.issue_register_ref = ISSUE_REF_FORMAT.format(self.pk)
             type(self).objects.filter(pk=self.pk).update(
                 event_no=self.event_no, issue_register_ref=self.issue_register_ref)
@@ -602,6 +747,7 @@ DEFAULT_OPTIONS = {
     "notify_how": ["Verbal", "Phone", "Email", "Aconex"],
     "claim": ["Extension of Time", "Delay costs (cl. 16.7)", "Variation (cl. 21)", "None"],
     "recorded_in": ["Construction Issue Register", "Daily site diary", "Programme update", "EOT / claim file"],
+    "plant_type": ["Light vehicle", "Truck", "Excavator", "Crane", "Trailer", "Generator", "Other"],
 }
 _CODE_OVERRIDES = {"Safety / HSE incident": "safety_hse"}
 
@@ -614,3 +760,21 @@ def seed_options(user=None):
                 category=cat, code=_CODE_OVERRIDES.get(label, slugify(label)[:60]),
                 defaults={"label": label, "sort_order": i, "created_by": user, "updated_by": user},
             )
+
+
+def seed_wpu_project(user=None):
+    """Create the WPU project and attach the rows that existed before projects did:
+    every event without a project, and every plant item (they are the WPU ute roster) get
+    project = WPU; plant without a type becomes "Light vehicle". Safe to run more than once."""
+    client = Company.objects.filter(name__istartswith="BHP").first()
+    project, _ = Project.objects.get_or_create(
+        code="WPU",
+        defaults={"name": "Wayside Power Upgrade - 10 ALX Sites", "client": client, "event_no_prefix": "WPU-EV-",
+                  "created_by": user, "updated_by": user},
+    )
+    Event.objects.filter(project__isnull=True).update(project=project)
+    light = Option.objects.filter(category="plant_type", code="light-vehicle").first()
+    Plant.objects.filter(project__isnull=True).update(project=project)
+    if light:
+        Plant.objects.filter(plant_type__isnull=True).update(plant_type=light)
+    return project

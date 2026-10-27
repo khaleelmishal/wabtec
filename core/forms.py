@@ -3,7 +3,7 @@ completeness is checked on submit (Event.completeness_errors)."""
 from django import forms
 from django.db.models import Q
 
-from .models import ContractImpact, Event, Staff, Vehicle
+from .models import ContractImpact, Event, Staff, Plant
 
 STEPS = [
     (1, "Event details"),
@@ -84,7 +84,7 @@ class Step3Form(StepForm):
 class Step4Form(StepForm):
     class Meta:
         model = Event
-        fields = ["delay_status", "delay_from", "delay_to", "hours_lost", "people_stood_down", "vehicles",
+        fields = ["delay_status", "delay_from", "delay_to", "hours_lost", "people_stood_down", "plant",
                   "plant_on_standby", "activities_affected", "on_critical_path", "caused_by", "mitigation"]
         widgets = {
             "delay_status": forms.RadioSelect,
@@ -99,7 +99,7 @@ class Step4Form(StepForm):
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        self._limit("vehicles", Vehicle.objects.filter(is_active=True))
+        self._limit("Plants", Plant.objects.filter(is_active=True))
 
 
 class Step5Form(StepForm):

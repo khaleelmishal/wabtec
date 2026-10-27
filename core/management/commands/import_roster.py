@@ -1,12 +1,12 @@
 """
-Load staff, companies and vehicles from the roster workbook.
+Load staff, companies and Plants from the roster workbook.
 
     python manage.py import_roster ~/WPU_Roster_Dashboard.xlsx --dry-run
     python manage.py import_roster ~/WPU_Roster_Dashboard.xlsx
     python manage.py import_roster ~/WPU_Roster_Dashboard.xlsx --create-accounts --passwords-csv ~/new_logins.csv
 
-Safe to run again: people are matched on name + company, vehicles on asset ID.
-Imported from the sheet: name, company, job title, email (staff) and every vehicle column.
+Safe to run again: people are matched on name + company, Plants on asset ID.
+Imported from the sheet: name, company, job title, email (staff) and every Plant column.
 NOT imported: mobile numbers, BHP / ERMS ids and the other personal columns.
 """
 import csv
@@ -19,7 +19,7 @@ import openpyxl
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from core.models import Company, Staff, Vehicle
+from core.models import Company, Staff, Plant
 
 # Fill in if two spellings are the same company, e.g. {"LGC": "LGC Rail"}. Left empty on purpose.
 COMPANY_ALIASES = {}
@@ -57,7 +57,7 @@ def read_table(rows, first_header):
 
 
 class Command(BaseCommand):
-    help = "Import staff, companies and vehicles from the roster workbook (.xlsx)."
+    help = "Import staff, companies and Plants from the roster workbook (.xlsx)."
 
     def add_arguments(self, p):
         p.add_argument("path")
@@ -72,7 +72,7 @@ class Command(BaseCommand):
             raise CommandError(f"Cannot open workbook: {e}")
         with transaction.atomic():
             self.staff(wb["INPUT - Roster"], o)
-            self.vehicles(wb["Ute Roster"])
+            self.Plants(wb["Ute Roster"])
             if o["dry_run"]:
                 transaction.set_rollback(True)
                 self.stdout.write(self.style.WARNING("Dry run: nothing was saved."))
@@ -140,8 +140,8 @@ class Command(BaseCommand):
         if len(notes) > 25:
             self.stdout.write(f"  ... and {len(notes) - 25} more notes")
 
-    # ------------------------------------------------------------- vehicles
-    def vehicles(self, ws):
+    # ------------------------------------------------------------- Plants
+    def Plants(self, ws):
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
         fleet, plan = read_table(rows, "Registration"), read_table(rows, "Crew")
         new = upd = 0
@@ -149,7 +149,7 @@ class Command(BaseCommand):
             asset = v.get("Asset ID", "")
             if not asset or asset.upper() == "TBC":
                 continue
-            _, created = Vehicle.objects.update_or_create(asset_id=asset, defaults=dict(
+            _, created = Plant.objects.update_or_create(asset_id=asset, defaults=dict(
                 registration=v.get("Registration", ""), make_model=v.get("Model", ""),
                 ivms_no=v.get("IVMS #", ""), dfms_no=v.get("DFMS #", ""), vin=v.get("VIN/PIN", ""),
                 height_mm=to_int(v.get("Height")), length_mm=to_int(v.get("Length")),
@@ -157,9 +157,9 @@ class Command(BaseCommand):
             ))
             new, upd = new + created, upd + (not created)
         planned, unmatched = 0, 0
-        valid = {c.value for c in Vehicle.Assignment}
+        valid = {c.value for c in Plant.Assignment}
         for a in plan:
-            veh = Vehicle.objects.filter(asset_id=a.get("Asset ID", "")).first()
+            veh = Plant.objects.filter(asset_id=a.get("Asset ID", "")).first()
             if not veh:
                 unmatched += bool(a.get("Crew"))
                 continue
@@ -170,5 +170,5 @@ class Command(BaseCommand):
                 veh.registration = a["Rego"]
             veh.save()
             planned += 1
-        self.stdout.write(self.style.SUCCESS(f"Vehicles: {new} new, {upd} updated; allocation applied to {planned}; "
+        self.stdout.write(self.style.SUCCESS(f"Plants: {new} new, {upd} updated; allocation applied to {planned}; "
                                               f"{unmatched} allocation rows have no matching asset ID (e.g. TBC)."))

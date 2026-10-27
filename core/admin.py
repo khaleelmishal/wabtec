@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 
-from .models import Company, Option, Staff, User, Vehicle
+from .models import Company, Option, Staff, User, Plant
 
 
 class AuditAdmin(admin.ModelAdmin):
@@ -35,8 +35,8 @@ class StaffAdmin(AuditAdmin):
         self.message_user(request, f"{n} account(s) created. Set their passwords from the Users page.", messages.SUCCESS)
 
 
-@admin.register(Vehicle)
-class VehicleAdmin(AuditAdmin):
+@admin.register(Plant)
+class PlantAdmin(AuditAdmin):
     list_display = ("asset_id", "registration", "make_model", "crew", "assignment", "assigned_to", "ivms_no", "dfms_no", "is_active")
     list_filter = ("make_model", "assignment", "is_active")
     search_fields = ("asset_id", "registration", "ivms_no", "dfms_no", "vin", "crew", "assigned_to")
