@@ -19,4 +19,4 @@ jobs:
           username: ${{ secrets.PA_USERNAME }}
           api_token: ${{ secrets.PA_API_TOKEN }}
           domain_name: ${{ secrets.PA_DOMAIN }}
-          django_settings: "wabtec.settings"
+          django_settings: "Portal.settings"
