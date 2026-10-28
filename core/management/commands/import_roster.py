@@ -276,6 +276,11 @@ class Command(BaseCommand):
                 accounts += 1
                 if pw:
                     creds.append((person.name, person.company.name, user.username, pw))
+        if o["passwords_csv"] and creds:
+            with open(o["passwords_csv"], "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["name", "company", "username", "password"])
+                writer.writerows(creds)
         self.stdout.write(self.style.SUCCESS(f"Staff: {new} new, {upd} updated, {skipped} placeholder rows skipped."))
 
     # ------------------------------------------------------------- Plants
