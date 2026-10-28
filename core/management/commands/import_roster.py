@@ -270,17 +270,56 @@ class Command(BaseCommand):
             companies[company_name] += 1
             if re.search(r"replac|filling|leave", title, re.I):
                 notes.append(f"job title has a note, tidy in admin: {name}")
-            if o["create_accounts"] and active and not hasattr(person, "account"):
-                pw = "".join(secrets.choice(PW_CHARS) for _ in range(10)) if o["passwords_csv"] else None
-                user = person.create_account(password=pw)
-                accounts += 1
-                if pw:
-                    creds.append((person.name, person.company.name, user.username, pw))
-        if o["passwords_csv"] and creds:
+            if o["create_accounts"] and active:
+                if o["passwords_csv"]:
+                    # Generate a fresh password on every import run.
+                    pw = "".join(
+                        secrets.choice(PW_CHARS) for _ in range(10)
+                    )
+
+                    if hasattr(person, "account"):
+                        # Existing account: keep username, reset password.
+                        user = person.account
+                        user.set_password(pw)
+                        user.save(update_fields=["password"])
+                    else:
+                        # New account: create it with the generated password.
+                        user = person.create_account(password=pw)
+                        accounts += 1
+
+                    # Record credentials for both new and existing accounts.
+                    creds.append((
+                        person.name,
+                        person.company.name,
+                        user.username,
+                        pw,
+                    ))
+
+                elif not hasattr(person, "account"):
+                    # No CSV requested: create missing accounts as before.
+                    person.create_account(password=None)
+                    accounts += 1
+
+
+        if o["create_accounts"] and o["passwords_csv"]:
             with open(o["passwords_csv"], "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(["name", "company", "username", "password"])
                 writer.writerows(creds)
+
+            # Restrict the file to the account owner on Linux.
+            os.chmod(o["passwords_csv"], 0o600)
+
+            self.stdout.write(self.style.SUCCESS(
+                f"Credentials saved for {len(creds)} active staff accounts: "
+                f"{o['passwords_csv']}"
+            ))
+
+        self.stdout.write(self.style.SUCCESS(
+            f"Staff: {new} new, {upd} updated, {skipped} placeholder rows skipped. "
+            f"New accounts created: {accounts}."
+        ))
+
         self.stdout.write(self.style.SUCCESS(f"Staff: {new} new, {upd} updated, {skipped} placeholder rows skipped."))
 
     # ------------------------------------------------------------- Plants
