@@ -2,7 +2,7 @@
   <a href="{% url 'event_edit' e.pk %}">
     <div class="d-flex justify-content-between align-items-start gap-2">
       <strong>{{ e.event_no }}</strong>
-      <span class="badge {% if e.is_finished %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if e.is_finished %}Finished{% else %}Ongoing{% endif %}</span>
+      <span class="badge {% if e.is_finished %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if e.is_finished %}Submitted{% else %}Draft{% endif %}</span>
     </div>
     <div class="rep-title text-truncate">{{ e.title }}</div>
     <div class="rep-meta">{{ e.event_date|date:"d M Y"|default:"No date yet" }} &middot; edited {{ e.updated_at|timesince }} ago</div>

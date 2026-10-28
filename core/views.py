@@ -15,7 +15,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView
 
 from .forms import STEP_FIELDS, STEP_FORMS, STEPS, m2m_names
-from .models import ContractImpact, Event, EventLog, FollowUpAction, Staff
+from .models import ContractImpact, Event, EventLog, FollowUpAction, Staff, Plant, Project, Activity, OutsideStaff
 from core.services import get_groq_client, ask_groq
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def visible_steps(user):
 def _get_event(user, pk):
 	"""Safely fetch an event without crashing into Http404. Returns None if missing or unauthorized."""
 	try:
-		event = Event.objects.select_related("site", "reported_by").get(pk=pk)
+		event = Event.objects.select_related("project", "reported_by").get(pk=pk)
 		if event.reported_by_id != user.id and not user.is_superuser:
 			return None
 		return event
@@ -88,7 +88,7 @@ def _get_event(user, pk):
 
 
 def _sidebar(request, active_pk=None):
-	reports = list(Event.objects.filter(reported_by=request.user).select_related("site").order_by("-updated_at")[:300])
+	reports = list(Event.objects.filter(reported_by=request.user).select_related("project").order_by("-updated_at")[:300])
 	return {
 		"reports": reports, "active_pk": active_pk,
 		"n_all": len(reports), "n_finished": sum(e.is_finished for e in reports),
@@ -103,7 +103,7 @@ def _errors(form):
 def _ok(request, event, **extra):
 	item = render_to_string("events/_sidebar_item.html", {"e": event, "active_pk": event.pk}, request=request)
 	return JsonResponse({
-		"ok": True, "id": event.pk, "event_no": event.event_no, "issue_ref": event.issue_register_ref,
+		"ok": True, "id": event.pk, "event_no": event.event_no,
 		"reported_at": timezone.localtime(event.reported_at).strftime("%d %b %Y %H:%M"),
 		"finished": event.is_finished, "saved_at": timezone.localtime().strftime("%H:%M"),
 		"item_html": item, **extra,
@@ -243,40 +243,50 @@ def event_edit(request, pk):
 @login_required
 @require_POST
 def event_save(request, step, pk=None):
-	if step not in STEP_FORMS or step not in visible_steps(request.user):
-		return JsonResponse({"ok": False, "error": "Invalid operation or access denied."}, status=400)
-	
-	user = request.user
-	try:
-		event = _get_event(user, pk) if pk else None
-		if pk and not event:
-			return JsonResponse({"ok": False, "error": "The requested event could not be found or access is denied."}, status=404)
-		
-		try:
-			seen = max(1, min(7, int(request.POST.get("current_step", step))))
-		except (ValueError, TypeError):
-			seen = step
+    if step not in STEP_FORMS or step not in visible_steps(request.user):
+        return JsonResponse({"ok": False, "error": "Invalid operation or access denied."}, status=400)
+    
+    user = request.user
+    try:
+        event = _get_event(user, pk) if pk else None
+        if pk and not event:
+            return JsonResponse({"ok": False, "error": "The requested event could not be found or access is denied."}, status=404)
+        
+        try:
+            seen = max(1, min(7, int(request.POST.get("current_step", step))))
+        except (ValueError, TypeError):
+            seen = step
 
-		if step == 7:
-			return _save_contract(request, event, seen)
+        if step == 7:
+            return _save_contract(request, event, seen)
 
-		form = STEP_FORMS[step](request.POST, instance=event)
-		if not form.is_valid():
-			return JsonResponse({"ok": False, "errors": _errors(form)})
-		if event is None and not form.has_changed():
-			return JsonResponse({"ok": True, "id": None})
-		if event is not None and not form.has_changed():
-			_touch_step(event, seen)
-			return _ok(request, event)
-		obj = form.save(commit=False)
-		obj.last_step = seen
-		obj.save(user=user, request=request)
-		_save_m2m(obj, form, user, request)
-		return _ok(request, obj)
-	except Exception as e:
-		logger.exception("Unexpected error in event_save for user=%s pk=%s step=%s: %s", user.username, pk, step, e)
-		return JsonResponse({"ok": False, "error": "A system error occurred while saving. Please try again later or contact admin."}, status=500)
+        form = STEP_FORMS[step](request.POST, instance=event)
+        if not form.is_valid():
+            return JsonResponse({"ok": False, "errors": _errors(form)})
+        if event is None and not form.has_changed():
+            return JsonResponse({"ok": True, "id": None})
+        if event is not None and not form.has_changed():
+            _touch_step(event, seen)
+            return _ok(request, event)
+            
+        obj = form.save(commit=False)
+        obj.last_step = seen
+        obj.save(user=user, request=request)
+        _save_m2m(obj, form, user, request)
+        
+        # ---> ADD THIS BLOCK TO SAVE OUTSIDE STAFF (OTHERS_INVOLVED) <---
+        if hasattr(form, '_cleaned_outside_names'):
+            outside_objs = []
+            for name in form._cleaned_outside_names:
+                ext_obj, _ = OutsideStaff.objects.get_or_create(name=name)
+                outside_objs.append(ext_obj)
+            obj.set_m2m("others_involved", outside_objs, user=user, request=request)
+        # -------------------------------------------------------------
 
+        return _ok(request, obj)
+    except Exception as e:
+        logger.exception("Unexpected error in event_save for user=%s pk=%s step=%s: %s", user.username, pk, step, e)
+        return JsonResponse({"ok": False, "error": "A system error occurred while saving. Please try again later or contact admin."}, status=500)
 
 def _save_contract(request, event, seen):
 	user = request.user
@@ -408,3 +418,51 @@ def ai_transcribe_view(request):
 			return JsonResponse({"error": "Voice transcription service is temporarily unavailable. Please try again later."}, status=500)
 			
 	return JsonResponse({"error": "Invalid request or missing audio file."}, status=400)
+
+# --------------------------------------------------------------------------
+# APIs calls (e.g., for dynamic dropdowns)
+# --------------------------------------------------------------------------
+
+@login_required
+def api_activities(request):
+    project_id = request.GET.get("project_id")
+    
+    if not project_id:
+        return JsonResponse({
+            "activities": [], 
+            "message": "Please choose a project first."
+        })
+        
+    try:
+        # 1. Verify project exists and is active
+        project = Project.objects.filter(pk=project_id, is_active=True).first()
+        if not project:
+            return JsonResponse({
+                "activities": [],
+                "message": "The selected project could not be found or is inactive."
+            }, status=404)
+            
+        # 2. Query active activities for this project
+        qs = Activity.objects.filter(is_active=True, project_id=project_id)
+        data = [{"id": a.pk, "label": str(a)} for a in qs]
+        
+        # 3. Handle project with no activities yet
+        if not data:
+            return JsonResponse({
+                "activities": [],
+                "message": f"Project '{project.code}' has not been updated with schedule activities yet."
+            })
+            
+        return JsonResponse({"activities": data})
+        
+    except (ValueError, TypeError):
+        return JsonResponse({
+            "activities": [],
+            "message": "Invalid project identifier provided."
+        }, status=400)
+    except Exception as e:
+        logger.exception("Unexpected error in api_activities for project_id=%s: %s", project_id, e)
+        return JsonResponse({
+            "activities": [],
+            "message": "A temporary database error occurred while loading activities. Please try again."
+        }, status=500)

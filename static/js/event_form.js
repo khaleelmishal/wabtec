@@ -102,7 +102,7 @@
     if (d.id) {
       live("event_no", d.event_no); live("issue_ref", d.issue_ref); live("reported_at", d.reported_at);
       var b = $("#statusBadge");
-      if (b) { b.textContent = d.finished ? "Finished" : "Ongoing"; b.className = "badge ms-2 " + (d.finished ? "text-bg-success" : "text-bg-warning"); }
+      if (b) { b.textContent = d.finished ? "Submitted" : "Draft"; b.className = "badge ms-2 " + (d.finished ? "text-bg-success" : "text-bg-warning"); }
       updateSidebar(d);
     }
     if (d.followup_ids) applyFollowupIds(d.followup_ids);
@@ -172,6 +172,152 @@
     if (problem) { e.preventDefault(); e.returnValue = ""; }
   });
 
+
+/* ---------------------------------------------------------- Ongoing event: toggle time_ended state */
+  (function () {
+    var f = panel(1); if (!f) return;
+    var crewEl = f.elements["crew_involved"];
+    if (crewEl && crewEl.tomselect) {
+      crewEl.tomselect.settings.create = true;
+      crewEl.tomselect.settings.createFilter = function(input) { return input.length > 1; };
+    }
+    var discEl = f.elements["discipline"];
+    if (discEl && discEl.tomselect) {
+      discEl.tomselect.settings.create = true;
+    }
+
+    /* clearer "add new" wording in the two pickers that allow typing a new value */
+    function createLabel(ts, make) {
+      if (!ts) return;
+      ts.settings.render = ts.settings.render || {};
+      ts.settings.render.option_create = function (data, escape) { return '<div class="create">' + make(escape(data.input)) + "</div>"; };
+    }
+    createLabel(crewEl && crewEl.tomselect, function (t) { return "Add <strong>" + t + "</strong> as an external person"; });
+    createLabel(discEl && discEl.tomselect, function (t) { return "Add discipline <strong>" + t + "</strong>"; });
+
+    /* quick chips under the date / time pickers: [label, days back] */
+    function addChips(name, items) {
+      var el = f.elements[name]; if (!el || !el._flatpickr) return;
+      var fp = el._flatpickr, box = document.createElement("div");
+      box.className = "quick-chips";
+      items.forEach(function (it) {
+        var b = document.createElement("button");
+        b.type = "button"; b.textContent = it[0];
+        b.addEventListener("click", function () { fp.setDate(new Date(Date.now() - it[1] * 864e5), true); });
+        box.appendChild(b);
+      });
+      (fp.altInput || el).insertAdjacentElement("afterend", box);
+    }
+    addChips("event_date", [["Today", 0], ["Yesterday", 1]]);
+    addChips("time_started", [["Now", 0]]);
+    addChips("time_ended", [["Now", 0]]);
+    var ongoingEl = f.elements["is_ongoing"];
+    var timeEndedEl = f.elements["time_ended"];
+    if (!ongoingEl || !timeEndedEl) return;
+
+    function updateTimeEndedState() {
+      var isOngoing = ongoingEl.checked;
+
+      // UI cues: pulsing dot on the switch, "Still running" placeholder, chips off
+      var cell = ongoingEl.closest(".fcell"); if (cell) cell.classList.toggle("is-live", isOngoing);
+      if (timeEndedEl._flatpickr && timeEndedEl._flatpickr.altInput) timeEndedEl._flatpickr.altInput.placeholder = isOngoing ? "Still running" : "";
+      $$(".quick-chips button", timeEndedEl.closest(".val")).forEach(function (b) { b.disabled = isOngoing; });
+
+      // 1. Disable or enable the native input
+      timeEndedEl.disabled = isOngoing;
+
+      // 2. Handle Flatpickr / time picker plugin if present
+      if (timeEndedEl._flatpickr) {
+        timeEndedEl._flatpickr.set("clickOpens", !isOngoing);
+        if (timeEndedEl._flatpickr.altInput) {
+          timeEndedEl._flatpickr.altInput.disabled = isOngoing;
+          timeEndedEl._flatpickr.altInput.classList.toggle("text-muted", isOngoing);
+          timeEndedEl._flatpickr.altInput.classList.toggle("bg-light", isOngoing);
+        }
+      }
+
+      // 3. Apply visual styling to the input or its wrapper container
+      var wrapper = timeEndedEl.closest(".input-group") || timeEndedEl.parentElement;
+      if (wrapper) {
+        wrapper.classList.toggle("opacity-50", isOngoing);
+      }
+
+      if (isOngoing) {
+        timeEndedEl.value = "";
+        if (timeEndedEl._flatpickr) {
+          timeEndedEl._flatpickr.clear();
+        }
+        timeEndedEl.classList.add("text-muted", "bg-light");
+        // Trigger change so dirty tracking registers the cleared value
+        timeEndedEl.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        timeEndedEl.classList.remove("text-muted", "bg-light");
+      }
+    }
+
+    ongoingEl.addEventListener("change", updateTimeEndedState);
+    updateTimeEndedState(); // Run on load in case of pre-filled data
+  })();
+
+/* ---------------------------------------------------------- Duration readout (step 1) */
+  (function () {
+    var f = panel(1); if (!f) return;
+    var out = $("#durOut"), d = f.elements.event_date, a = f.elements.time_started,
+        b = f.elements.time_ended, o = f.elements.is_ongoing;
+    if (!out || !a || !b || !o) return;
+    function mins(t) { return t && t.length >= 5 ? (+t.slice(0, 2)) * 60 + (+t.slice(3, 5)) : null; }
+    function fmt(m) { var h = Math.floor(m / 60), r = m % 60; return h ? h + " h" + (r ? " " + r + " min" : "") : r + " min"; }
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    function render() {
+      var s = mins(a.value), e = mins(b.value), txt, warn = false, now = new Date();
+      var today = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
+      if (s === null) {
+        txt = "Enter the start time";
+      } else if (o.checked) {
+        if (!d || !d.value || d.value === today) {
+          var m = now.getHours() * 60 + now.getMinutes() - s;
+          if (m < 0) { txt = "Start time is in the future"; warn = true; }
+          else txt = "Running for " + fmt(m) + " so far";
+        } else {
+          var shown = d._flatpickr && d._flatpickr.altInput ? d._flatpickr.altInput.value : d.value;
+          txt = "Ongoing since " + a.value + " on " + shown;
+        }
+      } else if (e === null) {
+        txt = "Enter the end time, or switch on Still happening";
+      } else {
+        var diff = e - s, over = diff < 0;
+        if (over) diff += 1440;
+        txt = fmt(diff) + (over ? " (crosses midnight)" : "");
+        warn = over || diff > 16 * 60;
+      }
+      out.textContent = txt;
+      out.classList.toggle("warn", warn);
+    }
+    ["change", "input"].forEach(function (ev) { f.addEventListener(ev, render); });
+    render();
+    setInterval(render, 60000);   // keeps "Running for ..." fresh
+  })();
+
+/* ---------------------------------------------------------- Auto-expanding Textareas */
+  document.addEventListener("input", function (e) {
+    var t = e.target;
+    if (t.tagName === "TEXTAREA") {
+      // Temporarily shrink height to compute true scrollHeight accurately
+      t.style.height = "auto";
+      // Set new height matching the content size
+      t.style.height = (t.scrollHeight + 2) + "px";
+    }
+  });
+
+  // Also trigger height calculation on load for textareas that already have pre-filled text
+  $$("textarea").forEach(function (ta) {
+    ta.style.overflow = "hidden"; // Hide internal scrollbars
+    ta.style.resize = "none";     // Disable manual resizing drag-handle which messes up layout
+    if (ta.value) {
+      ta.style.height = "auto";
+      ta.style.height = (ta.scrollHeight + 2) + "px";
+    }
+  });
   /* ---------------------------------------------------------- dirty tracking, conditional fields */
   function evalShow(form) {
     $$("[data-show-when]", form).forEach(function (el) {
@@ -238,9 +384,109 @@
       else if ($('[name="fu_delete"]', row).value === "1") { row.remove(); }
     });
   }
+/* ---------------------------------------------------------- Dynamic Activity filtering by Project */
+  (function () {
+    var f = panel(1); if (!f) return;
+    var projSelect = f.elements["project"];
+    var actSelect = f.elements["activity"];
+    if (!projSelect || !actSelect) return;
+    var actCell = actSelect.closest(".fcell");
 
+    // Activity stays disabled until a project is chosen
+    function updateActivityState() {
+      var ts = actSelect.tomselect;
+      if (!projSelect.value) {
+        if (ts) {
+          ts.clear();
+          ts.clearOptions();
+          ts.settings.placeholder = "Please choose a project";
+          ts.input.setAttribute("placeholder", "Please choose a project");
+          ts.refreshOptions(false);
+          ts.disable();
+        } else {
+          actSelect.value = "";
+          actSelect.innerHTML = '<option value="">Please choose a project</option>';
+          actSelect.disabled = true;
+        }
+      } else if (ts) {
+        ts.settings.placeholder = "Select...";
+        ts.input.setAttribute("placeholder", "Select...");
+        ts.refreshOptions(false);
+        ts.enable();
+      } else {
+        actSelect.disabled = false;
+      }
+    }
+    function setLoading(on) { if (actCell) actCell.classList.toggle("is-loading", on); }
+
+    projSelect.addEventListener("change", function () {
+      var projectId = projSelect.value;
+      var hadActivity = !!actSelect.value;
+
+      // Clear current activity value
+      actSelect.value = "";
+      if (actSelect.tomselect) {
+        actSelect.tomselect.clear();
+        actSelect.tomselect.clearOptions();
+      }
+
+      updateActivityState();
+      if (!projectId) return;
+      if (hadActivity) WPU.toast("info", "Activity cleared. Pick one for this project.");
+
+      // Fetch filtered activities for the chosen project
+      setLoading(true);
+      fetch("/events/api/activities/?project_id=" + projectId, {
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        // If the backend returned a specific message (e.g., empty schedule or project not found)
+        if (data.message && (!data.activities || data.activities.length === 0)) {
+          Swal.fire({
+            icon: "info",
+            title: "Activity Schedule",
+            text: data.message,
+            confirmButtonColor: "#C8102E"
+          });
+        }
+
+        if (!data.activities) return;
+
+        // Populate Tom Select or standard select
+        if (actSelect.tomselect) {
+          data.activities.forEach(function (act) {
+            actSelect.tomselect.addOption({value: act.id, text: act.label});
+          });
+          actSelect.tomselect.refreshOptions(false);
+        } else {
+          // Fallback if Tom Select isn't active
+          actSelect.innerHTML = '<option value="">---------</option>';
+          data.activities.forEach(function (act) {
+            var opt = document.createElement("option");
+            opt.value = act.id;
+            opt.textContent = act.label;
+            actSelect.appendChild(opt);
+          });
+        }
+      })
+      .catch(function () {
+        Swal.fire({
+          icon: "error",
+          title: "Connection Error",
+          text: "Could not reach the server to load activities. Please check your connection and try again.",
+          confirmButtonColor: "#C8102E"
+        });
+      })
+      .then(function () { setLoading(false); });
+    });
+
+    // Initial check on load
+    updateActivityState();
+  })();
   /* ---------------------------------------------------------- steps */
-  function show(n) {
+  function show(n, silent) {
     current = n;
     $$("form.step-panel").forEach(function (f) { f.classList.toggle("d-none", +f.dataset.step !== n); });
     $$("#stepper li").forEach(function (li) {
@@ -249,11 +495,15 @@
     });
     var idx = steps.indexOf(n);
     $("#stepLabel").textContent = "Step " + (idx + 1) + " of " + steps.length;
-    $("#btnBack").disabled = idx === 0;
-    $("#btnNext").classList.toggle("d-none", n === last);
+    var back = $("#btnBack"); back.disabled = idx === 0; back.classList.toggle("invisible", idx === 0);
+    var nextBtn = $("#btnNext"), nextT = $('#stepper li[data-step="' + steps[idx + 1] + '"] .t');
+    nextBtn.innerHTML = "Next" + (nextT ? '<span class="d-none d-sm-inline">: ' + esc(nextT.textContent) + "</span>" : "") + ' <i class="bi bi-arrow-right"></i>';
+    nextBtn.classList.toggle("d-none", n === last);
+    var tb = $("#aiToolbar"), pn = panel(n);
+    if (tb) tb.classList.toggle("d-none", !(pn && pn.querySelector("textarea, #fuAdd")));
     var sb = $("#btnSubmit"); if (sb) sb.classList.toggle("d-none", n !== last);
     history.replaceState(null, "", location.pathname + location.search + "#step-" + n);
-    var top = $("#evTop"); if (top && top.scrollIntoView) top.scrollIntoView({ behavior: "smooth", block: "start" });
+    var top = $("#evTop"); if (!silent && top && top.scrollIntoView) top.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   function go(n) {
     if (n == null || n === current) return;
@@ -310,6 +560,10 @@
   /* ---------------------------------------------------------- start */
   var m = /^#step-(\d+)/.exec(location.hash);
   var start = m && steps.indexOf(+m[1]) > -1 ? +m[1] : (steps.indexOf(cfg.start) > -1 ? cfg.start : first);
-  show(start);
+  show(start, true);                       // no scroll on first load, so the site header stays in view
   refreshCounts();
+  if (!eventId && start === first && window.matchMedia && matchMedia("(min-width: 992px)").matches) {
+    var t0 = panel(first) && panel(first).elements["event_title"];
+    if (t0) t0.focus({ preventScroll: true });   // desktop only: on phones it would pop the keyboard
+  }
 })();

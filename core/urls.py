@@ -14,4 +14,5 @@ urlpatterns = [
     path("events/<int:pk>/submit/", views.event_submit, name="event_submit"),
     path('api/ai-assist/', views.ai_assist_view, name='ai_assist'),
     path('api/ai-transcribe/', views.ai_transcribe_view, name='ai_transcribe'),
+    path("events/api/activities/", views.api_activities, name="api_activities"),
 ]

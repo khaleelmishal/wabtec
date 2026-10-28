@@ -43,7 +43,7 @@ from django.db.models.functions import Now
 # Auto-number formats (form shows "WPU-EV-" and "EV"; adjust here if needed)
 # --------------------------------------------------------------------------
 EVENT_NO_FORMAT = "WPU-EV-{:04d}"
-ISSUE_REF_FORMAT = "EV-{:04d}"
+
 
 AUDIT_FIELDS = {"created_at", "created_by", "updated_at", "updated_by"}
 
@@ -181,7 +181,6 @@ class LoggedModel(AuditModel):
 # ==========================================================================
 class Option(AuditModel):
     class Category(models.TextChoices):
-        SITE = "site", "Site"
         EVENT_TYPE = "event_type", "Type of event"
         UPLOADED_TO = "uploaded_to", "Evidence uploaded to"
         OTHER_RECORD = "other_record", "Other records"
@@ -252,7 +251,7 @@ class NoticeOfDelay(models.TextChoices):
 
 
 # ==========================================================================
-# People, projects, programme activities and plant (people / plant loaded by import_roster)
+# People
 # ==========================================================================
 class Company(AuditModel):
     name = models.CharField(max_length=120, unique=True)
@@ -296,7 +295,18 @@ class Staff(AuditModel):
         user.set_password(password) if password else user.set_unusable_password()
         user.save()
         return user
+class OutsideStaff(AuditModel):
+    name = models.CharField(max_length=160, unique=True)
+    company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.SET_NULL, related_name="outside_staff")
+    job_title = models.CharField(max_length=200, blank=True)
+    is_active = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "outside staff"
+
+    def __str__(self):
+        return f"{self.name} ({self.company.name})" if self.company_id else self.name
 
 # ==========================================================================
 # Projects and programme activities
@@ -448,7 +458,44 @@ class Plant(AuditModel):
         extra = " ".join(p for p in (self.make_model, f"({self.registration})" if self.registration else "") if p)
         return f"{self.asset_id} - {extra}" if extra else self.asset_id
 
+from django.utils.text import slugify
+# (Include this import at the top of models.py if not already present)
 
+# ==========================================================================
+# Discipline & Crew Models (Railway / Construction Domain)
+# ==========================================================================
+class Discipline(AuditModel):
+    name = models.CharField(max_length=100, unique=True)
+    code = models.SlugField(max_length=50, unique=True, blank=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = slugify(self.name)[:50]
+        super().save(*args, **kwargs)
+
+
+class Crew(AuditModel):
+    name = models.CharField(max_length=120, unique=True)
+    discipline = models.ForeignKey(Discipline, null=True, blank=True, on_delete=models.SET_NULL, related_name="crews")
+    supervisor = models.ForeignKey(Staff, null=True, blank=True, on_delete=models.SET_NULL, related_name="supervised_crews", help_text="Lead supervisor or foreman.")
+    description = models.TextField(blank=True, help_text="Crew composition, plant assigned, or shift details.")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["discipline", "name"]
+        verbose_name_plural = "crews"
+
+    def __str__(self):
+        return f"{self.name} ({self.discipline.name})" if self.discipline else self.name
+    
 # ==========================================================================
 # The event record (form sections 1-6)
 # ==========================================================================
@@ -469,7 +516,7 @@ class Event(LoggedModel):
     # ---- 1. Event details ------------------------------------------------
     # auto-generated
     event_no = models.CharField("Event No.", max_length=20, unique=True, null=True, editable=False)
-    issue_register_ref = models.CharField("Issue register ref", max_length=20, unique=True, null=True, editable=False)
+    event_title = models.CharField("Event title", max_length=255, blank=True)
     reported_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, editable=False, on_delete=models.PROTECT, related_name="events_reported",
     )
@@ -480,22 +527,20 @@ class Event(LoggedModel):
     # where it sits in the programme: Event -> Activity -> Project.
     # Set the activity and the project is copied from it on save; project alone is fine for events
     # that do not belong to one activity.
-    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.PROTECT, related_name="events")
-    activity = models.ForeignKey(Activity, null=True, blank=True, on_delete=models.PROTECT, related_name="events",
-                                 verbose_name="Programme activity")
+
     # entered
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.PROTECT, related_name="events")
+    activity = models.ForeignKey(Activity, null=True, blank=True, on_delete=models.PROTECT, related_name="events",verbose_name="Activity ID")
+    discipline = models.ForeignKey(Discipline, null=True, blank=True, on_delete=models.PROTECT, related_name="events")
     event_date = models.DateField("Date of event", null=True, blank=True)
     time_started = models.TimeField("Time started", null=True, blank=True)
     time_ended = models.TimeField("Time ended", null=True, blank=True)
     is_ongoing = models.BooleanField("Ongoing", default=False)
-    site = models.ForeignKey(Option, null=True, blank=True, on_delete=models.PROTECT, related_name="+",
-                             limit_choices_to=_opt("site"))
     km_marker = models.CharField("km", max_length=40, blank=True)
-    crew = models.CharField("Work front / crew", max_length=120, blank=True, default="")
+    crew = models.ForeignKey(Crew, null=True, blank=True, on_delete=models.SET_NULL, related_name="events", verbose_name="Work front / crew")
     shift = models.CharField(max_length=5, choices=Shift.choices, blank=True, default="")
-    witnesses = models.ManyToManyField(Staff, blank=True, related_name="+")
-    witnesses_other = models.TextField("Other witnesses (not on the roster)", blank=True)
-
+    crew_involved = models.ManyToManyField(Staff, blank=True, related_name="+", verbose_name="Crew / staff involved")
+    others_involved = models.ManyToManyField(OutsideStaff, blank=True, related_name="+", verbose_name="Others / external involved")
     # ---- 2. Type of event (tick all that apply) --------------------------
     event_types = models.ManyToManyField(Option, related_name="+", limit_choices_to=_opt("event_type"))
     event_type_other = models.CharField("Other (specify)", max_length=200, blank=True)
@@ -546,7 +591,7 @@ class Event(LoggedModel):
 
     class Meta:
         ordering = ["-event_date", "-pk"]
-        indexes = [models.Index(fields=["event_date"]), models.Index(fields=["site", "event_date"]),
+        indexes = [models.Index(fields=["event_date"]),
                    models.Index(fields=["project", "event_date"])]
 
     def __str__(self):
@@ -566,20 +611,26 @@ class Event(LoggedModel):
 
     @property
     def title(self):
-        bits = [str(self.site) if self.site_id else "", (self.description or "").strip().replace("\n", " ")[:60]]
+        # If the user provided an event title, combine it with the project code (if available)
+        if self.event_title:
+            proj_prefix = self.project.code if self.project_id else ""
+            return f"{proj_prefix} - {self.event_title}" if proj_prefix else self.event_title
+        
+        # Fallback format: Project - Shortened Description
+        bits = [str(self.project) if self.project_id else "", (self.description or "").strip().replace("\n", " ")[:60]]
         return " - ".join(b for b in bits if b) or "Untitled report"
 
     def clean(self):
         super().clean()
         if self.activity_id and self.project_id and self.activity.project_id != self.project_id:
             raise ValidationError({"activity": "This activity belongs to a different project."})
-
+        
     def completeness_errors(self):
         """What is still missing before the event can be submitted. {field: [messages]}"""
         e = {}
         req = "This field is required."
-        for f in ("event_date", "time_started", "site", "shift", "description"):
-            if not getattr(self, f + "_id" if f == "site" else f):
+        for f in ("event_date", "time_started", "event_title", "shift", "description"):
+            if not getattr(self, f):
                 e[f] = [req]
         if not self.is_ongoing and not self.time_ended:
             e["time_ended"] = ["Enter the end time or tick Ongoing."]
@@ -589,6 +640,8 @@ class Event(LoggedModel):
             e["photos"] = ["Photos or video are required when there is a delay."]
         if self.client_notified == YesNo.NO and not self.not_notified_reason:
             e["not_notified_reason"] = ["Say why the client has not been notified."]
+        if not self.is_ongoing and not self.time_ended:
+            e["time_ended"] = ["End time is required unless the event is ongoing."]
         return e
 
     def save(self, *args, user=None, request=None, **kwargs):
@@ -602,9 +655,8 @@ class Event(LoggedModel):
         super().save(*args, user=user, request=request, **kwargs)
         if adding and not self.event_no:  # numbers come from the primary key: unique, no race
             self.event_no = self.project.make_event_no(self.pk) if self.project_id else EVENT_NO_FORMAT.format(self.pk)
-            self.issue_register_ref = ISSUE_REF_FORMAT.format(self.pk)
-            type(self).objects.filter(pk=self.pk).update(
-                event_no=self.event_no, issue_register_ref=self.issue_register_ref)
+            type(self).objects.filter(pk=self.pk).update(event_no=self.event_no)
+
 
     # -- workflow ----------------------------------------------------------
     def submit(self, user, request=None):
@@ -712,69 +764,3 @@ class EventLog(models.Model):
 
     def delete(self, *args, **kwargs):
         raise PermissionError("EventLog rows cannot be deleted.")
-
-
-# ==========================================================================
-# Default option lists - run once: from events.models import seed_options; seed_options()
-# Sites are project specific, so add them in the admin.
-# ==========================================================================
-DEFAULT_OPTIONS = {
-    "site": [
-        "Offsite",
-        "Third party accom",
-        "The Landing",
-        "Gateway",
-        "Port Haven",
-        "Redmont",
-        "Spinifex",
-        "Warrawandu",
-        "Kalgans Rest",
-        "Mulla Mulla",
-        "Oasis",
-        "Packsaddle",
-        "Whaleback",
-    ],
-    "event_type": [
-        "Design / drawings not available", "Client direction / instruction",
-        "Free-issue material (skids, batteries)", "Access / possession / permit",
-        "Inspection, CVC or commissioning", "Equipment defect / NCR",
-        "Client resource not available", "CCMS / switchover not ready", "Weather",
-        "Wabtec / subcontractor resource", "Plant or vehicle breakdown", "Other",
-        "Safety / HSE incident",
-    ],
-    "uploaded_to": ["WPU site WhatsApp group", "SharePoint event folder", "Aconex", "Other"],
-    "other_record": ["Email", "Site diary", "Pre-start / Take 5", "Permit / CRAW", "Sign-on sheet", "Text / call log"],
-    "notify_how": ["Verbal", "Phone", "Email", "Aconex"],
-    "claim": ["Extension of Time", "Delay costs (cl. 16.7)", "Variation (cl. 21)", "None"],
-    "recorded_in": ["Construction Issue Register", "Daily site diary", "Programme update", "EOT / claim file"],
-    "plant_type": ["Light vehicle", "Truck", "Excavator", "Crane", "Trailer", "Generator", "Other"],
-}
-_CODE_OVERRIDES = {"Safety / HSE incident": "safety_hse"}
-
-
-def seed_options(user=None):
-    from django.utils.text import slugify
-    for cat, labels in DEFAULT_OPTIONS.items():
-        for i, label in enumerate(labels, start=1):
-            Option.objects.get_or_create(
-                category=cat, code=_CODE_OVERRIDES.get(label, slugify(label)[:60]),
-                defaults={"label": label, "sort_order": i, "created_by": user, "updated_by": user},
-            )
-
-
-def seed_wpu_project(user=None):
-    """Create the WPU project and attach the rows that existed before projects did:
-    every event without a project, and every plant item (they are the WPU ute roster) get
-    project = WPU; plant without a type becomes "Light vehicle". Safe to run more than once."""
-    client = Company.objects.filter(name__istartswith="BHP").first()
-    project, _ = Project.objects.get_or_create(
-        code="WPU",
-        defaults={"name": "Wayside Power Upgrade - 10 ALX Sites", "client": client, "event_no_prefix": "WPU-EV-",
-                  "created_by": user, "updated_by": user},
-    )
-    Event.objects.filter(project__isnull=True).update(project=project)
-    light = Option.objects.filter(category="plant_type", code="light-vehicle").first()
-    Plant.objects.filter(project__isnull=True).update(project=project)
-    if light:
-        Plant.objects.filter(plant_type__isnull=True).update(plant_type=light)
-    return project

@@ -1,14 +1,14 @@
-{# Usage: {% include "events/_cell.html" with f=f1.crew cls="c6" show="delay_status=yes|potential" %} #}
+{# Usage: include "events/_cell.html" with f=f1.crew cls="c6" show="delay_status=yes|potential" switch="Still happening". Tooltip text comes from the form tips dict (forms.py); a single tick box is drawn as a switch with the text in switch (default Yes). #}
 {% with w=f.field.widget %}
 <div class="fcell {{ cls|default:'c12' }}"{% if show %} data-show-when="{{ show }}"{% endif %}>
   {% if w.input_type == "radio" or w.input_type == "checkbox" and w.allow_multiple_selected %}
-    <div class="lbl">{{ f.label }}</div>
+    <div class="lbl">{{ f.label }}{% include "events/_tip.html" with tip=f.field.tip label=f.label %}</div>
     <div class="val"><div class="choice-row">{% for o in f %}{{ o.tag }}<label class="btn btn-outline-primary" for="{{ o.id_for_label }}">{{ o.choice_label }}</label>{% endfor %}</div>
   {% elif w.input_type == "checkbox" %}
-    <div class="lbl">{{ f.label }}</div>
-    <div class="val"><div class="form-check">{{ f }}<label class="form-check-label" for="{{ f.id_for_label }}">Yes</label></div>
+    <div class="lbl">{{ f.label }}{% include "events/_tip.html" with tip=f.field.tip label=f.label %}</div>
+    <div class="val"><div class="form-check form-switch">{{ f }}<label class="form-check-label" for="{{ f.id_for_label }}">{{ switch|default:"Yes" }}</label></div>
   {% else %}
-    <label for="{{ f.id_for_label }}">{{ f.label }}</label>
+    <label for="{{ f.id_for_label }}">{{ f.label }}{% include "events/_tip.html" with tip=f.field.tip label=f.label %}</label>
     <div class="val">{{ f }}
   {% endif %}
     {% if f.help_text %}<div class="note mt-1">{{ f.help_text }}</div>{% endif %}

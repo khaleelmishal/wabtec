@@ -4,8 +4,8 @@
 </div>
 <div class="rep-filter btn-group btn-group-sm w-100" role="group" aria-label="Filter reports">
   <button type="button" class="btn btn-outline-secondary active" data-filter="all">All <span data-count="all">{{ n_all }}</span></button>
-  <button type="button" class="btn btn-outline-secondary" data-filter="ongoing">Ongoing <span data-count="ongoing">{{ n_ongoing }}</span></button>
-  <button type="button" class="btn btn-outline-secondary" data-filter="finished">Finished <span data-count="finished">{{ n_finished }}</span></button>
+  <button type="button" class="btn btn-outline-secondary" data-filter="ongoing">Drafts <span data-count="ongoing">{{ n_ongoing }}</span></button>
+  <button type="button" class="btn btn-outline-secondary" data-filter="finished">Submitted <span data-count="finished">{{ n_finished }}</span></button>
 </div>
 <ul id="reportList" class="rep-list list-unstyled m-0">
   {% for e in reports %}{% include "events/_sidebar_item.html" %}{% empty %}

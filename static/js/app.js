@@ -44,13 +44,54 @@
       });
     });
 
-    /* Flatpickr (phones fall back to the native picker automatically) */
+
+/* Flatpickr (phones fall back to the native picker automatically) */
     if (window.flatpickr) {
       var base = { allowInput: true, altInput: true, time_24hr: true, minuteIncrement: 5 };
       var once = function (el, opts) { if (!el._flatpickr) flatpickr(el, Object.assign({}, base, opts)); };
-      all("input[data-date]").forEach(function (el) { once(el, { dateFormat: "Y-m-d", altFormat: "d M Y" }); });
-      all("input[data-time]").forEach(function (el) { once(el, { enableTime: true, noCalendar: true, dateFormat: "H:i", altFormat: "H:i" }); });
+      
+      // --- Updated date picker configuration with auto-fill on open ---
+      all("input[data-date]").forEach(function (el) { 
+        once(el, { 
+          dateFormat: "Y-m-d", 
+          altFormat: "d M Y",
+          onOpen: function(selectedDates, dateStr, instance) {
+            // Instantly populates today's date if the field is empty (skipped when the input has data-no-autofill)
+            if (!instance.input.hasAttribute("data-no-autofill") && !instance.input.value && !selectedDates.length) {
+              instance.setDate(new Date(), true);
+            }
+          }
+        }); 
+      });
+
+      // --- Time picker configuration (from before) ---
+      all("input[data-time]").forEach(function (el) { 
+        once(el, { 
+          enableTime: true, 
+          noCalendar: true, 
+          dateFormat: "H:i",     
+          altFormat: "h:i K",    
+          time_24hr: false,      
+          onOpen: function(selectedDates, dateStr, instance) {
+            if (!instance.input.hasAttribute("data-no-autofill") && !instance.input.value && !selectedDates.length) {
+              instance.setDate(new Date(), true);
+            }
+          }
+        }); 
+      });
+
       all("input[data-datetime]").forEach(function (el) { once(el, { enableTime: true, dateFormat: "Y-m-d H:i", altFormat: "d M Y H:i" }); });
+    }
+
+    /* Tooltips: <i class="tip" data-bs-toggle="tooltip" data-bs-title="..."> (see events/_tip.html) */
+    if (window.bootstrap && bootstrap.Tooltip) {
+      all('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        if (el._tipDone) return;
+        el._tipDone = true;
+        // own click handler: stops a surrounding <label> grabbing focus, and makes iOS treat the icon as tappable
+        el.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); });
+        new bootstrap.Tooltip(el, { container: "body", trigger: "hover focus", placement: "top", customClass: "wpu-tip" });
+      });
     }
 
     /* DataTables (v2) */

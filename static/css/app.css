@@ -50,7 +50,11 @@ body { font-family: Arial, Helvetica, sans-serif; background: #fff; padding-bott
 .form-control, .form-select, .ts-control { border-radius: .2rem; }
 .form-control:focus, .form-select:focus, .ts-wrapper.focus .ts-control { border-color: var(--wpu-red); box-shadow: 0 0 0 .2rem rgba(200, 16, 46, .15); }
 .required::after { content: " *"; color: var(--wpu-red); }
-
+textarea {
+  overflow: hidden; /* Prevents scrollbars from flashing */
+  resize: none;     /* Keeps layout clean by locking manual corner-drag */
+  transition: height 0.05s ease-out; /* Smooths out the downward push */
+}
 /* big tap-friendly radio buttons (use .btn-check + label.btn.btn-outline-primary) */
 .choice-row { display: flex; flex-wrap: wrap; gap: .4rem; }
 .choice-row .btn { flex: 1 1 auto; }
@@ -132,3 +136,170 @@ table.dataTable tbody tr:hover > * { background: var(--wpu-label); }
 
 .fu-row { display: grid; grid-template-columns: 1fr; gap: .4rem; padding: .5rem 0; border-bottom: 1px dashed var(--wpu-line); }
 @media (min-width: 768px) { .fu-row { grid-template-columns: 3fr 2fr 1.4fr 1.2fr auto; align-items: start; } }
+
+/* ======================================================================
+   Step 1 polish: tooltips, groups, auto strip, switch, chips, error states
+   ====================================================================== */
+
+/* (i) tooltips */
+.tip { color: #6c757d; margin-left: .35rem; padding: .15rem; font-size: .8rem; font-style: normal; text-transform: none; letter-spacing: 0; cursor: help; }
+.tip:hover, .tip:focus-visible { color: var(--wpu-red); outline: 0; }
+.tip:focus-visible { box-shadow: 0 0 0 .15rem rgba(200, 16, 46, .25); border-radius: 50%; }
+.wpu-tip { --bs-tooltip-bg: var(--wpu-ink); --bs-tooltip-max-width: 260px; --bs-tooltip-opacity: 1; }
+.wpu-tip .tooltip-inner { text-align: left; font-size: .78rem; line-height: 1.35; padding: .45rem .6rem; }
+
+/* group dividers inside the grid (not .fcell, so the review modal skips them) */
+.fgroup { grid-column: 1 / -1; background: #fff; padding: .5rem .6rem .35rem; border-left: 3px solid var(--wpu-red); font-size: .82rem; font-weight: 700; }
+
+/* read-only strip */
+.fcell.is-auto > .lbl { font-size: .66rem; padding: .2rem .6rem; }
+.fcell.is-auto > .val.auto { min-height: 0; padding: .3rem .6rem; font-size: .82rem; overflow-wrap: anywhere; }
+.fcell > .val.auto.warn { color: #92400e; background: #fff8eb; }
+@media (max-width: 767.98px) { .fcell.half-sm { grid-column: span 6; } }
+
+/* switch (single tick boxes) */
+.form-check-input:checked { background-color: var(--wpu-red); border-color: var(--wpu-red); }
+.form-check-input:focus { border-color: var(--wpu-red); box-shadow: 0 0 0 .2rem rgba(200, 16, 46, .15); }
+.form-switch .form-check-input { width: 2.4em; height: 1.3em; cursor: pointer; }
+.form-switch .form-check-input:focus:not(:checked) { --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%280, 0, 0, 0.25%29'/%3e%3c/svg%3e"); }
+.form-switch .form-check-label { cursor: pointer; padding-left: .2rem; }
+@keyframes wpu-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.fcell.is-live .form-check-label { font-weight: 700; }
+.fcell.is-live .form-check-label::before { content: ""; display: inline-block; width: .5rem; height: .5rem; margin-right: .4rem; border-radius: 50%; background: var(--wpu-red); animation: wpu-pulse 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .fcell.is-live .form-check-label::before { animation: none; } }
+
+/* Today / Now chips */
+.quick-chips { display: flex; gap: .3rem; margin-top: .35rem; }
+.quick-chips button { border: 1px solid var(--wpu-line); background: #fff; color: var(--wpu-red); font-size: .72rem; font-weight: 600; line-height: 1; min-height: 1.6rem; padding: .28rem .6rem; border-radius: 999px; }
+.quick-chips button:hover:not(:disabled) { border-color: var(--wpu-red); background: #FDF0F2; }
+.quick-chips button:focus-visible { outline: 2px solid var(--wpu-ink); outline-offset: 1px; }
+.quick-chips button:disabled { opacity: .5; cursor: not-allowed; }
+@media (pointer: coarse) { .quick-chips button { min-height: 2rem; padding: .3rem .8rem; } }
+
+/* errors on Tom Select and Flatpickr (the real <select>/<input> is hidden, so style its replacement) */
+select.is-invalid + .ts-wrapper .ts-control,
+input.is-invalid + input.form-control { border-color: #dc3545; box-shadow: 0 0 0 .15rem rgba(220, 53, 69, .15); }
+
+/* activity picker: spinner next to its label while loading, greyed when disabled */
+.fcell.is-loading > label::after { content: ""; display: inline-block; width: .8rem; height: .8rem; margin-left: .5rem; vertical-align: -.15em; border: 2px solid var(--wpu-line); border-top-color: var(--wpu-red); border-radius: 50%; animation: wpu-spin .7s linear infinite; }
+.ts-wrapper.disabled .ts-control { background: #f3f4f6; cursor: not-allowed; }
+
+/* AI toolbar: dark strip like the section titles */
+.ai-toolbar-card { background: var(--wpu-ink); color: #fff; border: 0; border-left: 4px solid var(--wpu-red); border-radius: 0; }
+.ai-toolbar-card .btn-outline-dark, .ai-toolbar-card .btn-outline-secondary { --bs-btn-color: #fff; --bs-btn-border-color: rgba(255, 255, 255, .35); --bs-btn-hover-color: #fff; --bs-btn-hover-bg: rgba(255, 255, 255, .12); --bs-btn-hover-border-color: #fff; --bs-btn-active-color: #fff; --bs-btn-active-bg: rgba(255, 255, 255, .2); --bs-btn-active-border-color: #fff; }
+.ai-toolbar-card .btn-outline-danger { --bs-btn-color: #ff8a9b; --bs-btn-border-color: #ff8a9b; --bs-btn-hover-color: #fff; --bs-btn-hover-bg: var(--wpu-red); --bs-btn-hover-border-color: var(--wpu-red); }
+.ai-toolbar-card #globalAiStatus { color: #C9CDD3 !important; }
+.ai-toolbar-card #globalAiStatus a { color: #fff; font-weight: 600; text-decoration: underline; }
+@media (max-width: 575.98px) {
+  .ai-toolbar-card .ai-txt { display: none; }
+  .ai-toolbar-card .btn-danger .ai-txt { display: inline; }
+  .ai-toolbar-card #globalAiStatus { flex-basis: 100%; margin-left: 0 !important; }
+}
+
+/* sticky step bar: step label + save state in the middle */
+.step-mid { flex: 1 1 auto; min-width: 0; text-align: center; line-height: 1.25; }
+.step-mid .save-state { font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-nav #btnNext { white-space: nowrap; }
+
+/* ======================================================================
+   Moved from event_form.html: choice chips + review-before-submit modal
+   ====================================================================== */
+/* ======================================================================
+   Choice chips: .choice-row holds  <input> + <label class="btn ...">  pairs.
+   The native input is hidden (still keyboard-focusable); the label is the chip.
+   ====================================================================== */
+.fcell .choice-row {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: .5rem;
+  position: relative;
+}
+.fcell .choice-row > input {
+  position: absolute;
+  opacity: 0;
+  width: 1px; height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+.fcell .choice-row > input + label {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 0;
+  padding: .42rem .8rem .42rem .6rem;
+  border: 1px solid #D9DCE1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1A1A1A;
+  font-size: .875rem;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color .12s, border-color .12s;
+}
+.fcell .choice-row > input + label::before {
+  content: "";
+  flex: none;
+  width: 1rem; height: 1rem;
+  border: 1.5px solid #9AA0A9;
+  border-radius: 3px;
+  background: #fff center / 80% no-repeat;
+}
+.fcell .choice-row > input[type=radio] + label::before { border-radius: 50%; }
+
+.fcell .choice-row > input + label:hover,
+.fcell .choice-row > input + label:active {
+  border-color: #1A1A1A !important;
+  background-color: #F6F7F9 !important;
+  color: #1A1A1A !important;
+}
+.fcell .choice-row > input:checked + label,
+.fcell .choice-row > input:checked + label:hover,
+.fcell .choice-row > input:checked + label:active {
+  border-color: #C8102E !important;
+  background-color: #FDF0F2 !important;
+  color: #1A1A1A !important;
+  box-shadow: inset 0 0 0 1px #C8102E;
+}
+.fcell .choice-row > input[type=checkbox]:checked + label::before {
+  border-color: #C8102E;
+  background-color: #C8102E;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+}
+.fcell .choice-row > input[type=radio]:checked + label::before {
+  border-color: #C8102E;
+  background-color: #C8102E;
+  box-shadow: inset 0 0 0 3px #fff;
+}
+.fcell .choice-row > input:focus-visible + label {
+  outline: 2px solid #1A1A1A;
+  outline-offset: 2px;
+}
+.fcell .choice-row > input:disabled + label { opacity: .55; cursor: not-allowed; }
+
+/* ======================================================================
+   Review-before-submit modal
+   ====================================================================== */
+.rv-popup.swal2-popup { padding: 0; overflow: hidden; }
+.rv-popup .swal2-html-container.rv-scroll { margin: 0 !important; padding: 0 !important; max-height: 62vh; overflow: auto; }
+.rv-popup .swal2-actions { margin: 0; width: 100%; box-sizing: border-box; padding: .9rem 1.25rem; border-top: 1px solid #D9DCE1; justify-content: flex-end; }
+.rv { text-align: left; font-family: Arial, Helvetica, sans-serif; color: #1A1A1A; }
+.rv-head { position: sticky; top: 0; z-index: 2; background: #1A1A1A; color: #fff; padding: .9rem 3rem .9rem 1.25rem; }
+.rv-title { font-size: 1.1rem; font-weight: 700; }
+.rv-sub { font-size: .8rem; color: #C9CDD3; margin-top: .15rem; }
+.rv-sec { margin: 1rem 1.25rem 0; border: 1px solid #D9DCE1; border-radius: 6px; overflow: hidden; }
+.rv-sec:last-child { margin-bottom: 1rem; }
+.rv-sec-h { display: flex; align-items: center; gap: .6rem; background: #EEF0F3; padding: .5rem .75rem; }
+.rv-num { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: #C8102E; color: #fff; font-size: .75rem; font-weight: 700; }
+.rv-sec-t { flex: 1; font-weight: 700; font-size: .92rem; }
+.rv-edit { border: 0; background: none; color: #C8102E; font-size: .8rem; font-weight: 600; padding: .2rem .5rem; border-radius: 4px; cursor: pointer; }
+.rv-edit:hover { background: #fff; }
+.rv-row { display: grid; grid-template-columns: minmax(120px, 34%) 1fr; border-top: 1px solid #E3E6EA; }
+.rv-k { padding: .45rem .75rem; font-size: .78rem; font-weight: 600; color: #4A505A; background: #FAFBFC; }
+.rv-v { padding: .45rem .75rem; font-size: .88rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-v.empty { color: #8A909A; }
+@media (max-width: 575px) {
+  .rv-row { grid-template-columns: 1fr; }
+  .rv-k { padding-bottom: 0; background: none; }
+}
