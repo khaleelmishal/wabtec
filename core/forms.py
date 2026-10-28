@@ -111,6 +111,7 @@ class Step1Form(StepForm):
             "time_started": forms.TimeInput(format="%H:%M", attrs={"data-time": "", "data-no-autofill": ""}),
             "time_ended": forms.TimeInput(format="%H:%M", attrs={"data-time": "", "data-no-autofill": ""}),
             "shift": forms.RadioSelect,
+            "km_marker": forms.NumberInput(attrs={"step": "0.01", "placeholder": "e.g. 142.5"}),
         }
         labels = {"is_ongoing": "Ongoing?", "crew": "Crew / team", "crew_involved": "People involved"}
 

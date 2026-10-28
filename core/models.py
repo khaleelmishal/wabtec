@@ -536,7 +536,7 @@ class Event(LoggedModel):
     time_started = models.TimeField("Time started", null=True, blank=True)
     time_ended = models.TimeField("Time ended", null=True, blank=True)
     is_ongoing = models.BooleanField("Ongoing", default=False)
-    km_marker = models.CharField("km", max_length=40, blank=True)
+    km_marker = models.DecimalField("km", max_digits=8, decimal_places=2, null=True, blank=True)
     crew = models.ForeignKey(Crew, null=True, blank=True, on_delete=models.SET_NULL, related_name="events", verbose_name="Work front / crew")
     shift = models.CharField(max_length=5, choices=Shift.choices, blank=True, default="")
     crew_involved = models.ManyToManyField(Staff, blank=True, related_name="+", verbose_name="Crew / staff involved")
