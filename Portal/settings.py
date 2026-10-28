@@ -92,6 +92,7 @@ AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',
     'django.contrib.auth.backends.ModelBackend',
 ]
+AXES_FAILURE_LIMIT = 10
 # Internationalization
 LANGUAGE_CODE = "en-us"
 
