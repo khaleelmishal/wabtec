@@ -233,10 +233,10 @@ class CriticalPath(models.TextChoices):
 
 
 class CausedBy(models.TextChoices):
-    BHP = "bhp", "BHP"
-    WABTEC = "wabtec", "Wabtec"
-    SUBCON = "subcon", "Subcon"
-    SHARED = "shared", "Shared"
+    CLIENT_UPSTREAM = "Client(upstream)", "Client (upstream)"
+    SUBCONTRACTOR_DOWNSTREAM = "Subcontractor(Downstream)", "Subcontractor (downstream)"
+    WABTEC_INTERNAL = "Wabtec(Internal)", "Wabtec (internal)"
+
 
 
 class DirectionConfirmed(models.TextChoices):
@@ -549,20 +549,15 @@ class Event(LoggedModel):
     description = models.TextField("Description (what, where, who - facts only)", blank=True)
     cause = models.TextField("Cause (if known)", blank=True)
     action_taken = models.TextField("Action taken on site", blank=True)
-
+    cause_unknown = models.BooleanField("Cause not known yet", default=False)
     # ---- 4. Delay impact -------------------------------------------------
     delay_status = models.CharField("Delay?", max_length=10, choices=DelayStatus.choices, default=DelayStatus.NO)
-    delay_from = models.TimeField(null=True, blank=True)
-    delay_to = models.TimeField(null=True, blank=True)
     hours_lost = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     people_stood_down = models.PositiveIntegerField(null=True, blank=True)
-    plant = models.ManyToManyField(Plant, blank=True, related_name="+", verbose_name="Plant / vehicles on standby")
-    plant_on_standby = models.TextField("Other plant / equipment on standby (not in the register)", blank=True)
-    activities_affected = models.TextField("Programme ID / description", blank=True)
     on_critical_path = models.CharField(max_length=7, choices=CriticalPath.choices, default=CriticalPath.UNKNOWN)
-    caused_by = models.CharField(max_length=6, choices=CausedBy.choices, blank=True)
+    caused_by = models.CharField(max_length=50, choices=CausedBy.choices, blank=True)
     mitigation = models.TextField(blank=True)
-
+    potential_delay_justification = models.TextField("Potential delay justification", blank=True)
     # ---- 5. Evidence (required if there is a delay) -----------------------
     photos = models.CharField(max_length=3, choices=YesNo.choices, default=YesNo.NO)
     photo_count = models.PositiveIntegerField(null=True, blank=True)
@@ -619,7 +614,9 @@ class Event(LoggedModel):
         # Fallback format: Project - Shortened Description
         bits = [str(self.project) if self.project_id else "", (self.description or "").strip().replace("\n", " ")[:60]]
         return " - ".join(b for b in bits if b) or "Untitled report"
-
+    @property
+    def involved_plants(self):
+        return Plant.objects.filter(event_delays__event=self).distinct()
     def clean(self):
         super().clean()
         if self.activity_id and self.project_id and self.activity.project_id != self.project_id:
@@ -764,3 +761,20 @@ class EventLog(models.Model):
 
     def delete(self, *args, **kwargs):
         raise PermissionError("EventLog rows cannot be deleted.")
+
+class EventPlantDelay(AuditModel):
+    """Tracks individual delay entries for plant items. Allows multiple delays per plant per event."""
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="plant_delays")
+    plant = models.ForeignKey(Plant, on_delete=models.PROTECT, related_name="event_delays")
+    activity = models.ForeignKey(
+        Activity, null=True, blank=True, on_delete=models.SET_NULL, 
+        related_name="plant_delays", 
+        help_text="Specific activity affected for this plant item."
+    )
+    hours_lost = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        ordering = ["pk"]
+
+    def __str__(self):
+        return f"{self.plant} - {self.hours_lost or 0} hrs lost"

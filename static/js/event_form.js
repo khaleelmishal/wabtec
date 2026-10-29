@@ -172,6 +172,47 @@
     if (problem) { e.preventDefault(); e.returnValue = ""; }
   });
 
+/* ======================================================================
+   KM Marker input restriction: allow only numbers and single decimal dot
+   ====================================================================== */
+(function () {
+  var f = panel(1); if (!f) return;
+  var kmInput = f.elements["km_marker"];
+  if (!kmInput) return;
+
+  kmInput.addEventListener("input", function () {
+    var val = kmInput.value;
+    var cleaned = val.replace(/[^0-9.]/g, "");
+    var parts = cleaned.split(".");
+    if (parts.length > 2) {
+      cleaned = parts[0] + "." + parts.slice(1).join("");
+    }
+    if (val !== cleaned) {
+      kmInput.value = cleaned;
+    }
+  });
+
+  kmInput.addEventListener("keydown", function (e) {
+    var allowedKeys = ["Backspace", "Delete", "Tab", "Escape", "Enter", ".", "Decimal"];
+    if (
+      allowedKeys.indexOf(e.key) !== -1 ||
+      (e.key >= "0" && e.key <= "9") ||
+      ((e.ctrlKey || e.metaKey) && ["a", "c", "v", "x"].indexOf(e.key.toLowerCase()) !== -1) ||
+      e.key.indexOf("Arrow") === 0
+    ) {
+      if (e.key === "." && kmInput.value.indexOf(".") !== -1) {
+        var start = kmInput.selectionStart;
+        var end = kmInput.selectionEnd;
+        var selectedText = kmInput.value.substring(start, end);
+        if (selectedText.indexOf(".") === -1) {
+          e.preventDefault();
+        }
+      }
+      return;
+    }
+    e.preventDefault();
+  });
+})();
 
 /* ---------------------------------------------------------- Ongoing event: toggle time_ended state */
   (function () {
@@ -298,26 +339,230 @@
     setInterval(render, 60000);   // keeps "Running for ..." fresh
   })();
 
+/* ======================================================================
+   Step 4: plant delay list. One searchable picker adds rows (no modal),
+   rows hold the hours, "Same hours for all" and the total keep them tidy.
+   Field names are the Django formset's, so saving works as before.
+   ====================================================================== */
+(function () {
+  "use strict";
+
+  var list = document.getElementById("plantTableBody");
+  var form4 = document.querySelector('form.step-panel[data-step="4"]');
+  if (!list || !form4) return;
+  var totalEl = form4.querySelector('[name$="-TOTAL_FORMS"]');
+  if (!totalEl) return;
+  var prefix = totalEl.name.replace("-TOTAL_FORMS", "");
+  var noMsg = document.getElementById("noPlantsMsg");
+  var totalOut = document.getElementById("plantTotal");
+  var same = document.getElementById("chkSameDelay");
+  var sel = document.getElementById("plantPicker");
+
+  /* ---- the plant catalogue, read from the picker's <option> tags ---- */
+  var catalog = {};
+  if (sel) {
+    Array.prototype.forEach.call(sel.options, function (o) {
+      if (!o.value) return;
+      var p = { value: o.value, asset: o.getAttribute("data-asset") || o.textContent, model: o.getAttribute("data-model") || "",
+                reg: o.getAttribute("data-reg") || "", who: o.getAttribute("data-who") || "" };
+      p.text = [p.asset, p.model, p.reg, p.who].filter(Boolean).join(" ");
+      catalog[o.value] = p;
+    });
+  }
+
+  /* ---- helpers ---- */
+  function rows() { return Array.prototype.slice.call(list.querySelectorAll("li.plant-delay-row")); }
+  function isLive(r) { return !r.classList.contains("d-none"); }
+  function plantIdOf(r) { var i = r.querySelector(".plant-id"); return i ? i.value : ""; }
+  function hoursOf(r) { return r.querySelector(".plant-hours"); }
+  function save() { form4.dispatchEvent(new Event("change", { bubbles: true })); }   // autosave
+
+  function refresh() {
+    var live = rows().filter(isLive);
+    if (noMsg) noMsg.classList.toggle("d-none", live.length > 0);
+    if (!totalOut) return;
+    var sum = 0, any = false;
+    live.forEach(function (r) {
+      var v = parseFloat(hoursOf(r).value);
+      if (!isNaN(v)) { sum += v; any = true; }
+    });
+    totalOut.textContent = live.length
+      ? live.length + (live.length === 1 ? " plant" : " plants") + (any ? " - " + (Math.round(sum * 100) / 100) + " h lost in total" : "")
+      : "";
+    totalOut.classList.toggle("d-none", !live.length);
+  }
+
+  function liveHours() { return rows().filter(isLive).map(hoursOf); }
+  function setAll(value, source) {
+    liveHours().forEach(function (i) { if (i !== source && i.value !== value) i.value = value; });
+  }
+  function syncSame() {
+    if (!same || !same.checked) return;
+    var first = liveHours().filter(function (i) { return i.value.trim() !== ""; })[0];
+    if (first) setAll(first.value, first);
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text) e.textContent = text;
+    return e;
+  }
+  function hidden(name, value) {
+    var i = document.createElement("input");
+    i.type = "hidden"; i.name = name; i.value = value;
+    return i;
+  }
+
+  function buildRow(idx, p) {
+    var li = el("li", "plant-delay-row");
+    var base = prefix + "-" + idx + "-";
+    li.appendChild(hidden(base + "id", ""));
+    var pid = hidden(base + "plant", p.value);
+    pid.className = "plant-id";
+    li.appendChild(pid);
+
+    var name = el("div", "pl-name");
+    name.appendChild(el("strong", "", p.asset));
+    name.appendChild(document.createTextNode(" "));
+    name.appendChild(el("span", "", p.model + (p.reg ? " (" + p.reg + ")" : "")));
+    li.appendChild(name);
+
+    var hrs = el("div", "pl-hours");
+    var h = document.createElement("input");
+    h.type = "number"; h.name = base + "hours_lost"; h.className = "form-control plant-hours";
+    h.step = "0.1"; h.min = "0"; h.placeholder = "Hours"; h.setAttribute("inputmode", "decimal");
+    hrs.appendChild(h);
+    hrs.appendChild(el("span", "unit", "h"));
+    li.appendChild(hrs);
+
+    // DELETE keeps the formset indexes intact when a new row is removed before saving
+    var holder = el("span", "d-none");
+    var del = document.createElement("input");
+    del.type = "checkbox"; del.name = base + "DELETE"; del.value = "on";
+    holder.appendChild(del);
+    li.appendChild(holder);
+
+    var rm = el("button", "btn-remove-plant");
+    rm.type = "button"; rm.title = "Remove plant"; rm.setAttribute("aria-label", "Remove plant");
+    var ic = el("i", "bi bi-x-lg"); ic.setAttribute("aria-hidden", "true");
+    rm.appendChild(ic);
+    li.appendChild(rm);
+    return li;
+  }
+
+  /* ---- add / remove ---- */
+  var picker = null;
+
+  function addPlant(id) {
+    var p = catalog[id];
+    if (!p) return;
+    var back = rows().filter(function (r) { return !isLive(r) && plantIdOf(r) === id; })[0];
+    if (back) {                                        // it was removed earlier: bring that row back
+      back.classList.remove("d-none");
+      var d = back.querySelector('input[name$="-DELETE"]');
+      if (d) d.checked = false;
+    } else {
+      var idx = parseInt(totalEl.value, 10) || 0;
+      list.appendChild(buildRow(idx, p));
+      totalEl.value = String(idx + 1);
+    }
+    syncSame();
+    refresh();
+    save();
+  }
+
+  list.addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest(".btn-remove-plant") : null;
+    if (!btn) return;
+    var row = btn.closest("li.plant-delay-row");
+    if (!row) return;
+    var del = row.querySelector('input[name$="-DELETE"]');
+    if (del) { del.checked = true; row.classList.add("d-none"); } else { row.remove(); }
+    var id = plantIdOf(row);                           // offer it in the picker again
+    if (picker && catalog[id] && !picker.options[id]) picker.addOption(catalog[id]);
+    syncSame();
+    refresh();
+    save();
+  });
+
+  list.addEventListener("input", function (e) {
+    if (!e.target.classList.contains("plant-hours")) return;
+    if (same && same.checked) setAll(e.target.value, e.target);
+    refresh();
+  });
+
+  if (same) same.addEventListener("change", function () {
+    if (!same.checked) return;
+    syncSame();
+    refresh();
+    save();
+  });
+
+  /* ---- the searchable picker ---- */
+  var inUse = {};
+  rows().filter(isLive).forEach(function (r) { inUse[plantIdOf(r)] = true; });
+
+  if (sel && window.TomSelect) {
+    var opts = Object.keys(catalog).filter(function (k) { return !inUse[k]; }).map(function (k) { return catalog[k]; });
+    sel.innerHTML = "";                                // options now come from the list above
+    picker = new TomSelect(sel, {
+      options: opts,
+      valueField: "value", labelField: "text", searchField: ["text"],
+      maxItems: null, hideSelected: false, closeAfterSelect: false, openOnFocus: true, maxOptions: null,
+      dropdownParent: "body",                          // floats over the page instead of opening inside the list
+      placeholder: sel.getAttribute("placeholder") || "Search plant...",
+      render: {
+        option: function (d, esc) {
+          return '<div class="pk-opt"><strong>' + esc(d.asset) + '</strong><span>' + esc(d.model) +
+                 (d.reg ? " (" + esc(d.reg) + ")" : "") + (d.who ? " - " + esc(d.who) : "") + "</span></div>";
+        },
+        no_results: function () { return '<div class="no-results">No plant matches that search</div>'; }
+      },
+      onItemAdd: function (value) {
+        addPlant(value);
+        this.removeItem(value, true);                  // the picker stays empty, ready for the next plant
+        this.removeOption(value, true);                // and it no longer offers a plant already in the list
+        this.setTextboxValue("");
+        this.refreshOptions(false);
+      }
+    });
+  } else if (sel) {                                    // no Tom Select: plain multi-select fallback
+    Array.prototype.forEach.call(sel.options, function (o) { if (inUse[o.value]) o.remove(); });
+    sel.addEventListener("change", function () {
+      Array.prototype.slice.call(sel.selectedOptions).forEach(function (o) { addPlant(o.value); o.remove(); });
+    });
+  }
+
+  refresh();
+})();
+
 /* ---------------------------------------------------------- Auto-expanding Textareas */
+  var MIN_TEXTAREA_HEIGHT = 60; // Minimum height in pixels for textareas
+
   document.addEventListener("input", function (e) {
     var t = e.target;
     if (t.tagName === "TEXTAREA") {
       // Temporarily shrink height to compute true scrollHeight accurately
       t.style.height = "auto";
-      // Set new height matching the content size
-      t.style.height = (t.scrollHeight + 2) + "px";
+      // Set new height matching the content size, bounded by minimum height
+      t.style.height = Math.max(t.scrollHeight + 2, MIN_TEXTAREA_HEIGHT) + "px";
     }
   });
 
-  // Also trigger height calculation on load for textareas that already have pre-filled text
+  // Also initialize height and min-height on load for all textareas
   $$("textarea").forEach(function (ta) {
     ta.style.overflow = "hidden"; // Hide internal scrollbars
     ta.style.resize = "none";     // Disable manual resizing drag-handle which messes up layout
+    ta.style.minHeight = MIN_TEXTAREA_HEIGHT + "px";
     if (ta.value) {
       ta.style.height = "auto";
-      ta.style.height = (ta.scrollHeight + 2) + "px";
+      ta.style.height = Math.max(ta.scrollHeight + 2, MIN_TEXTAREA_HEIGHT) + "px";
+    } else {
+      ta.style.height = MIN_TEXTAREA_HEIGHT + "px";
     }
   });
+
   /* ---------------------------------------------------------- dirty tracking, conditional fields */
   function evalShow(form) {
     $$("[data-show-when]", form).forEach(function (el) {
@@ -340,6 +585,69 @@
     });
     evalShow(f);
   });
+  /* step 2: type chips (counter, Clear all, Other box, HSE reminder) */
+  (function () {
+    var f = panel(2); if (!f) return;
+    var boxes = $$('input[name="event_types"]', f);
+    if (!boxes.length) return;
+    var count = $("#typeCount", f), clear = $("#typeClear", f),
+        hse = $("#hseNote", f), other = $("#typeOtherWrap", f);
+    function any(list, attr) { return list.some(function (b) { return b.hasAttribute(attr); }); }
+    function sync() {
+      var on = boxes.filter(function (b) { return b.checked; });
+      if (count) {
+        count.textContent = on.length ? on.length + " selected" : "Nothing ticked yet. Tick every type that applies.";
+        count.classList.toggle("has", on.length > 0);
+      }
+      if (clear) clear.classList.toggle("d-none", !on.length);
+      $$(".type-group", f).forEach(function (g) {
+        var n = $$("input:checked", g).length, badge = $("[data-n]", g);
+        if (badge) badge.textContent = n || "";
+      });
+      if (hse) hse.classList.toggle("d-none", !any(on, "data-hse"));
+      if (other) other.classList.toggle("d-none", !any(on, "data-other"));
+    }
+    f.addEventListener("change", function (e) { if (e.target.name === "event_types") sync(); });
+    if (clear) clear.addEventListener("click", function () {
+      var ticked = boxes.filter(function (b) { return b.checked; });
+      if (!ticked.length) return;
+      ticked.forEach(function (b) { b.checked = false; });
+      ticked[ticked.length - 1].dispatchEvent(new Event("change", { bubbles: true }));   // saves and refreshes the page bits
+      boxes[0].focus();
+    });
+    sync();
+  })();
+  /* step 3: HSE reminder (follows step 2) and the "Cause not known yet" switch */
+  (function () {
+    var f = panel(3); if (!f) return;
+
+    var hint = $("#hseHint", f);
+    function syncHse() {
+      var on = $$('input[name="event_types"][data-hse]').some(function (b) { return b.checked; });
+      if (hint) hint.classList.toggle("d-none", !on);
+    }
+    document.addEventListener("change", function (e) { if (e.target.name === "event_types") syncHse(); });
+    syncHse();
+
+    var cause = $('[name="cause"]', f), sw = $('[name="cause_unknown"]', f);
+    if (!cause || !sw) return;
+    var wrap = sw.closest(".wpu-switch"), ph = cause.getAttribute("placeholder") || "";
+    function syncCause() {
+      var has = cause.value.trim() !== "";
+      if (has && sw.checked) sw.checked = false;            // typing a cause replaces "not known"
+      sw.disabled = has;                                   // can only be switched on while the box is empty
+      if (wrap) { wrap.classList.toggle("is-off", has); wrap.title = has ? "Clear the cause box to use this" : ""; }
+      cause.classList.toggle("is-muted", sw.checked);
+      cause.placeholder = sw.checked ? "Not known yet" : ph;
+    }
+    cause.addEventListener("input", function () {
+      var was = sw.checked;
+      syncCause();
+      if (was && !sw.checked) sw.dispatchEvent(new Event("change", { bubbles: true }));   // save the switch too
+    });
+    sw.addEventListener("change", syncCause);
+    syncCause();
+  })();
 
   /* delay hours: worked out from the two times until the person types their own */
   (function () {
@@ -489,6 +797,16 @@
   function show(n, silent) {
     current = n;
     $$("form.step-panel").forEach(function (f) { f.classList.toggle("d-none", +f.dataset.step !== n); });
+    
+    // Recalculate textareas in the newly visible panel (prevents 0-height when evaluated while hidden)
+    var activePanel = panel(n);
+    if (activePanel) {
+      $$("textarea", activePanel).forEach(function (ta) {
+        ta.style.height = "auto";
+        ta.style.height = Math.max(ta.scrollHeight + 2, MIN_TEXTAREA_HEIGHT) + "px";
+      });
+    }
+
     $$("#stepper li").forEach(function (li) {
       var k = +li.dataset.step;
       li.classList.toggle("active", k === n); li.classList.toggle("done", k < n);

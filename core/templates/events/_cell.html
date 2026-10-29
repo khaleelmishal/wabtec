@@ -6,7 +6,7 @@
     <div class="val"><div class="choice-row">{% for o in f %}{{ o.tag }}<label class="btn btn-outline-primary" for="{{ o.id_for_label }}">{{ o.choice_label }}</label>{% endfor %}</div>
   {% elif w.input_type == "checkbox" %}
     <div class="lbl">{{ f.label }}{% include "events/_tip.html" with tip=f.field.tip label=f.label %}</div>
-    <div class="val"><div class="form-check form-switch">{{ f }}<label class="form-check-label" for="{{ f.id_for_label }}">{{ switch|default:"Yes" }}</label></div>
+    <div class="val"><label class="wpu-switch" for="{{ f.id_for_label }}">{{ f }}<span class="track" aria-hidden="true"></span><span class="txt">{{ switch|default:"Yes" }}</span></label>
   {% else %}
     <label for="{{ f.id_for_label }}">{{ f.label }}{% include "events/_tip.html" with tip=f.field.tip label=f.label %}</label>
     <div class="val">{{ f }}

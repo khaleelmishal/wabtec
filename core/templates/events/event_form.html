@@ -21,28 +21,30 @@
     {% endfor %}
   </ol>
 
-  <!-- AI toolbar: shown only on steps that have text boxes -->
-  <div id="aiToolbar" class="card mb-3 ai-toolbar-card shadow-sm no-print">
-      <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
-          <span class="fw-bold small text-white"><i class="bi bi-stars text-warning"></i> Plant AI Assistant:</span>
-          <button type="button" class="btn btn-sm btn-outline-danger" onclick="globalRecord(this)" title="Dictate voice notes via Whisper v3">
-              <i class="bi bi-mic"></i> <span class="ai-txt">Record Voice</span>
-          </button>
-          <button type="button" class="btn btn-sm btn-outline-dark" onclick="globalPolish('expand')" title="Turn rough field shorthand into formal log notes">
-              <i class="bi bi-journal-text text-info"></i> <span class="ai-txt">Expand Shorthand</span>
-          </button>
-          <button type="button" class="btn btn-sm btn-outline-dark" onclick="globalPolish('improve')" title="Clean up grammar and professionalize text">
-              <i class="bi bi-stars text-warning"></i> <span class="ai-txt">AI Polish</span>
-          </button>
-          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="globalPolish('rca')" title="Structure text into a Root Cause Analysis format">
-              <i class="bi bi-diagram-3"></i> <span class="ai-txt">Root Cause</span>
-          </button>
-          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="globalPolish('action_steps')" title="Format into structured maintenance action steps">
-              <i class="bi bi-tools"></i> <span class="ai-txt">Action Steps</span>
-          </button>
-          <span id="globalAiStatus" class="text-muted small ms-auto">Click inside any text box, then use AI tools.</span>
-      </div>
-  </div>
+<div id="aiToolbar" class="card mb-3 ai-toolbar-card shadow-sm no-print">
+    <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+        <span class="fw-bold small text-white me-2"><i class="bi bi-stars text-warning"></i> Plant AI Assistant:</span>
+        
+        <button type="button" class="btn btn-sm btn-outline-danger" data-action="record" onclick="globalRecord(this)" title="Dictate voice notes via Whisper v3 (Alt+1)">
+            <i class="bi bi-mic"></i> <span class="ai-txt">Voice</span><span class="kbd-hint">Alt+1</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-dark" data-action="expand" onclick="globalPolish('expand')" title="Turn rough field shorthand into formal log notes (Alt+2)">
+            <i class="bi bi-journal-text text-info"></i> <span class="ai-txt">Expand</span><span class="kbd-hint">Alt+2</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-dark" data-action="improve" onclick="globalPolish('improve')" title="Clean up grammar and professionalize text (Alt+3)">
+            <i class="bi bi-stars text-warning"></i> <span class="ai-txt">Polish</span><span class="kbd-hint">Alt+3</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-action="rca" onclick="globalPolish('rca')" title="Structure text into a Root Cause Analysis format (Alt+4)">
+            <i class="bi bi-diagram-3"></i> <span class="ai-txt">Root Cause</span><span class="kbd-hint">Alt+4</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-action="action_steps" onclick="globalPolish('action_steps')" title="Format into structured maintenance action steps (Alt+5)">
+            <i class="bi bi-tools"></i> <span class="ai-txt">In Steps</span><span class="kbd-hint">Alt+5</span>
+        </button>
+        
+        <!-- Status indicator -->
+        <span id="globalAiStatus" class="small ms-auto"><i class="bi bi-info-circle"></i> Click inside any text box, then use AI tools.</span>
+    </div>
+</div>
 
   {# ------------------------------------------------------------ 1 #}
   {% if 1 in steps %}
@@ -56,12 +58,12 @@
         <div class="fcell c3 half-sm is-auto"><div class="lbl">Date / time reported{% include "events/_tip.html" with tip="Set automatically when the report is first saved. This is not the time the event happened." label="Date and time reported" %}</div><div class="val auto" data-live="reported_at">{% if event %}{{ event.reported_at|date:"d M Y H:i" }}{% else %}Set on first save{% endif %}</div></div>
         <div class="fcell c3 half-sm is-auto"><div class="lbl">Company / role{% include "events/_tip.html" with tip="Taken from your user profile." label="Company and role" %}</div><div class="val auto">{{ event.reporter_company_role|default:reporter.company_role|default:"-" }}</div></div>
 
-        <div class="fgroup">Event</div>
+        <div class="fgroup"><span class="gt">Event</span><span class="gd">A short headline and where it belongs</span></div>
         {% include "events/_cell.html" with f=f1.event_title cls="c12" %}
         {% include "events/_cell.html" with f=f1.project cls="c6" %}
         {% include "events/_cell.html" with f=f1.activity cls="c6" %}
 
-        <div class="fgroup">When</div>
+        <div class="fgroup"><span class="gt">When</span><span class="gd">Start, finish and shift</span></div>
         {% include "events/_cell.html" with f=f1.event_date cls="c3" %}
         {% include "events/_cell.html" with f=f1.time_started cls="c3" %}
         {% include "events/_cell.html" with f=f1.time_ended cls="c3" %}
@@ -69,12 +71,12 @@
         {% include "events/_cell.html" with f=f1.shift cls="c6" %}
         <div class="fcell c6"><div class="lbl">Duration{% include "events/_tip.html" with tip="Worked out from the start and end times. An end time earlier than the start is counted as crossing midnight." label="Duration" %}</div><div class="val auto" id="durOut">Enter the start time</div></div>
 
-        <div class="fgroup">Where and what</div>
+        <div class="fgroup"><span class="gt">Where and what</span><span class="gd">Location, trade and crew</span></div>
         {% include "events/_cell.html" with f=f1.km_marker cls="c4" %}
         {% include "events/_cell.html" with f=f1.discipline cls="c4" %}
         {% include "events/_cell.html" with f=f1.crew cls="c4" %}
 
-        <div class="fgroup">People</div>
+        <div class="fgroup"><span class="gt">People</span><span class="gd">Everyone involved</span></div>
         {% include "events/_cell.html" with f=f1.crew_involved cls="c12" %}
       </div></div>
     </section>
@@ -87,9 +89,35 @@
     <section class="sec">
       <h2 class="sec-title"><span class="num">2</span>Type of event <span class="small fw-normal ms-2">tick all that apply</span></h2>
       <div class="sec-body"><div class="fgrid">
-        {% include "events/_cell.html" with f=f2.event_types cls="c12" %}
-        {% include "events/_cell.html" with f=f2.event_type_other cls="c12" %}
-        <div class="fcell c12"><div class="val note"><i class="bi bi-exclamation-triangle-fill text-danger"></i> <strong>Safety / HSE incident:</strong> also report it under the WPU Incident Management Procedure and tell your Supervisor immediately.</div></div>
+        <div class="fcell c12">
+          <div class="lbl">{{ f2.event_types.label }}{% include "events/_tip.html" with tip=f2.event_types.field.tip label=f2.event_types.label %}</div>
+          <div class="val">
+            <div class="type-bar no-print">
+              <span id="typeCount" class="type-count" aria-live="polite">Nothing ticked yet. Tick every type that applies.</span>
+              <button type="button" id="typeClear" class="type-clear d-none">Clear all</button>
+            </div>
+            <div class="type-groups">
+              {% for g in f2.type_groups %}
+              <div class="type-group{% if g.safety %} is-safety{% endif %}" data-group="{{ g.key }}" role="group" aria-label="{{ g.title }}">
+                <div class="tg-head"><i class="bi {{ g.icon }}" aria-hidden="true"></i><span class="tg-title">{{ g.title }}</span><span class="tg-n" data-n></span></div>
+                <div class="tg-chips">
+                  {% for it in g.items %}
+                  <div class="type-chip{% if it.hse %} is-hse{% endif %}{% if it.tip %} has-tip{% endif %}">{{ it.bw.tag }}<label for="{{ it.bw.id_for_label }}">{% if it.hse %}<i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>{% endif %}{{ it.bw.choice_label }}</label>{% include "events/_tip.html" with tip=it.tip label=it.bw.choice_label %}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="invalid-feedback d-block" data-err="{{ f2.event_types.html_name }}"></div>
+          </div>
+        </div>
+        <div id="typeOtherWrap" class="span-all d-none">
+          {% include "events/_cell.html" with f=f2.event_type_other cls="c12" %}
+        </div>
+        <div id="hseNote" class="hse-note span-all d-none" role="alert">
+          <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+          <div><strong>Safety / HSE incident.</strong> Also report it under the WPU Incident Management Procedure and tell your Supervisor immediately.</div>
+        </div>
       </div></div>
     </section>
   </form>
@@ -103,36 +131,74 @@
       <div class="sec-body"><div class="fgrid">
         {% include "events/_cell.html" with f=f3.description cls="c12" %}
 
-        {% include "events/_cell.html" with f=f3.cause cls="c6" %}
+        <div id="hseHint" class="hse-hint span-all d-none" role="status">
+          <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+          <div><strong>Safety / HSE incident:</strong> include any injury, first aid given and who you told.</div>
+        </div>
+
+        <div class="fcell c6">
+          <label for="{{ f3.cause.id_for_label }}">{{ f3.cause.label }}{% include "events/_tip.html" with tip=f3.cause.field.tip label=f3.cause.label %}</label>
+          <div class="val">{{ f3.cause }}
+            <label class="wpu-switch cause-switch" for="{{ f3.cause_unknown.id_for_label }}">{{ f3.cause_unknown }}<span class="track" aria-hidden="true"></span><span class="txt">Cause not known yet</span></label>
+            <div class="invalid-feedback d-block" data-err="cause"></div>
+          </div>
+        </div>
         {% include "events/_cell.html" with f=f3.action_taken cls="c6" %}
       </div></div>
     </section>
   </form>
   {% endif %}
 
-  {# ------------------------------------------------------------ 4 #}
-  {% if 4 in steps %}
-  <form class="step-panel d-none" data-step="4" autocomplete="off" novalidate>{% csrf_token %}
-    <section class="sec">
-      <h2 class="sec-title"><span class="num">4</span>Delay impact</h2>
-      <div class="sec-body"><div class="fgrid">
-        {% include "events/_cell.html" with f=f4.delay_status cls="c12" %}
-        {% include "events/_cell.html" with f=f4.delay_from cls="c3" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.delay_to cls="c3" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.hours_lost cls="c3" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.people_stood_down cls="c3" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.Plants cls="c6" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.Plant_on_standby cls="c6" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.activities_affected cls="c8" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.on_critical_path cls="c4" show="delay_status=yes|potential" %}
-        {% include "events/_cell.html" with f=f4.caused_by cls="c6" show="delay_status=yes|potential" %}
-        
-        {% include "events/_cell.html" with f=f4.mitigation cls="c6" show="delay_status=yes|potential" %}
+{# ------------------------------------------------------------ Step 4 ------------------------------------------------------------ #}
+{% if 4 in steps %}
+<form class="step-panel d-none" data-step="4" autocomplete="off" novalidate>{% csrf_token %}
+  <section class="sec">
+    <h2 class="sec-title"><span class="num">4</span>Delay impact</h2>
+    <div class="sec-body"><div class="fgrid">
+      {% include "events/_cell.html" with f=f4.delay_status cls="c12" %}
 
-      </div></div>
-    </section>
-  </form>
-  {% endif %}
+      {# ---- Plant delays (shown only when the delay is "yes"). Rows are added from the picker, no modal. ---- #}
+      <div class="fcell c12" id="plantCell" data-show-when="delay_status=yes">
+        <div class="lbl">Plant &amp; equipment delays{% include "events/_tip.html" with tip="Add each plant item that could not work because of this event, and the hours it lost. Search by asset ID, model or registration. Leave the hours blank if you do not know them yet." label="Plant and equipment delays" %}</div>
+        <div class="val">
+          {{ plant_formset.management_form }}
+
+          <div class="plant-toolbar">
+            <div class="plant-picker">
+              <select id="plantPicker" multiple placeholder="Search plant by ID, model or rego, then pick to add" aria-label="Search and add plant">
+                {% for plant in available_plants %}<option value="{{ plant.pk }}" data-asset="{{ plant.asset_id }}" data-model="{{ plant.make_model }}" data-reg="{{ plant.registration }}" data-who="{{ plant.assigned_to }}">{{ plant }}</option>{% endfor %}
+              </select>
+            </div>
+            <label class="wpu-switch plant-same" for="chkSameDelay"><input type="checkbox" id="chkSameDelay" class="form-check-input"><span class="track" aria-hidden="true"></span><span class="txt">Same hours for all</span></label>
+            {% include "events/_tip.html" with tip="When this is on, typing hours for one plant fills in the same hours for all the other plants." label="Same hours for all" %}
+          </div>
+
+          <ul class="plant-list" id="plantTableBody">
+            {% for form in plant_formset %}
+            <li class="plant-delay-row">
+              {{ form.id }}{{ form.plant }}
+              <div class="pl-name">{% if form.instance.pk %}<strong>{{ form.instance.plant.asset_id }}</strong> <span>{{ form.instance.plant.make_model }}{% if form.instance.plant.registration %} ({{ form.instance.plant.registration }}){% endif %}</span>{% endif %}</div>
+              <div class="pl-hours">{{ form.hours_lost }}<span class="unit">h</span></div>
+              {% if plant_formset.can_delete %}<span class="d-none">{{ form.DELETE }}</span>{% endif %}
+              <button type="button" class="btn-remove-plant" title="Remove plant" aria-label="Remove plant"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+            </li>
+            {% endfor %}
+          </ul>
+          <div id="noPlantsMsg" class="plant-empty{% if plant_formset|length > 0 %} d-none{% endif %}">No plant added yet. Use the search box above to add plant items.</div>
+          <div id="plantTotal" class="plant-total d-none" aria-live="polite"></div>
+        </div>
+      </div>
+
+      {% include "events/_cell.html" with f=f4.people_stood_down cls="c4" show="delay_status=yes" %}
+      {% include "events/_cell.html" with f=f4.potential_delay_justification cls="c12" show="delay_status=potential" %}
+      {% include "events/_cell.html" with f=f4.on_critical_path cls="c8" show="delay_status=yes" %}
+      {% include "events/_cell.html" with f=f4.caused_by cls="c6" show="delay_status=yes" %}
+      {% include "events/_cell.html" with f=f4.mitigation cls="c6" show="delay_status=yes" %}
+    </div></div>
+  </section>
+</form>
+{% endif %}
+
   {# ------------------------------------------------------------ 5 #}
   {% if 5 in steps %}
   <form class="step-panel d-none" data-step="5" autocomplete="off" novalidate>{% csrf_token %}
@@ -271,7 +337,8 @@
     Object.values(groups).forEach(list => {
       const first = list[0];
       if (first.type === 'checkbox' && list.length === 1) {
-        parts.push(first.checked ? 'Yes' : 'No');
+        if (first.dataset.reviewYes) { if (first.checked) parts.push(first.dataset.reviewYes); }   // e.g. "Not known yet"
+        else parts.push(first.checked ? 'Yes' : 'No');
       } else if (first.type === 'checkbox' || first.type === 'radio') {
         list.filter(i => i.checked).forEach(i => parts.push(labelOf(i)));
       } else if (first.tagName === 'SELECT') {
@@ -282,6 +349,18 @@
       }
     });
     return { text: parts.join(', '), auto: false };
+  }
+
+  function plantsText(cell) {
+    const lines = [];
+    cell.querySelectorAll('li.plant-delay-row').forEach(r => {
+      if (isHidden(r, cell)) return;
+      const name = clean((r.querySelector('.pl-name') || {}).textContent);
+      const h = r.querySelector('.plant-hours');
+      const hv = h ? h.value.trim() : '';
+      lines.push(name + ' - ' + (hv ? hv + ' h' : 'hours not entered'));
+    });
+    return lines.join('\n');
   }
 
   function followUps(form) {
@@ -341,6 +420,7 @@
         if (!lbl || isHidden(cell, form)) return;
         let text, auto = false;
         if (cell.querySelector('#fuRows')) text = followUps(form);
+        else if (cell.querySelector('#plantTableBody')) text = plantsText(cell);
         else ({ text, auto } = cellValue(cell));
         const row = el('div', 'rv-row');
         row.append(el('div', 'rv-k', clean(lbl.textContent).replace(/\*$/, '').trim()));
@@ -431,13 +511,21 @@
 
 <script>
 /* ======================================================================
-   AI assistant toolbar
+   AI assistant toolbar  (voice, polish, shortcuts, silence auto-stop)
    ====================================================================== */
 let activeTextarea = null;
 let lastAiTarget = null;
 let mediaRecorder = null;
 let audioChunks = [];
-const aiPrev = new WeakMap();   // textarea -> value before the last AI change
+let recStream = null;
+let recAudioCtx = null;
+let recAnalyser = null;
+let recSilenceRAF = null;
+let recSilenceStart = null;
+
+const SILENCE_DB_THRESHOLD = -45;   // dBFS — below this = "quiet"
+const SILENCE_MS = 3000;            // stop after 3 s of quiet
+const aiPrev = new WeakMap();       // textarea -> value before the last AI change
 
 function aiStatus(html) {
   const s = document.getElementById('globalAiStatus');
@@ -472,9 +560,53 @@ document.addEventListener('focusin', (e) => {
   aiStatus(`<i class="bi bi-check-circle text-success"></i> Active field: <strong>${fieldLabel}</strong>`);
 });
 
-// 1. Voice recording -> Whisper
+/* ---------- silence detection helpers ---------- */
+function stopSilenceMonitor() {
+  if (recSilenceRAF) { cancelAnimationFrame(recSilenceRAF); recSilenceRAF = null; }
+  if (recAudioCtx) { recAudioCtx.close().catch(() => {}); recAudioCtx = null; }
+  recAnalyser = null;
+  recSilenceStart = null;
+}
+
+function startSilenceMonitor(stream, onSilence) {
+  stopSilenceMonitor();
+  try {
+    recAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = recAudioCtx.createMediaStreamSource(stream);
+    recAnalyser = recAudioCtx.createAnalyser();
+    recAnalyser.fftSize = 2048;
+    src.connect(recAnalyser);
+  } catch (e) {
+    console.warn('Silence detection unavailable:', e);
+    return; // mic still works, just no auto-stop
+  }
+  const buf = new Float32Array(recAnalyser.fftSize);
+  recSilenceStart = null;
+
+  const tick = () => {
+    if (!recAnalyser) return;
+    recAnalyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const rms = Math.sqrt(sum / buf.length);
+    const db = 20 * Math.log10(rms || 1e-8);
+
+    if (db < SILENCE_DB_THRESHOLD) {
+      if (recSilenceStart == null) recSilenceStart = performance.now();
+      else if (performance.now() - recSilenceStart >= SILENCE_MS) {
+        onSilence();
+        return; // stop the loop; onstop() will tear down
+      }
+    } else {
+      recSilenceStart = null;
+    }
+    recSilenceRAF = requestAnimationFrame(tick);
+  };
+  recSilenceRAF = requestAnimationFrame(tick);
+}
+
+/* ---------- voice recording ---------- */
 async function globalRecord(btn) {
-  // second click = stop
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop();
     return;
@@ -483,10 +615,11 @@ async function globalRecord(btn) {
     Swal.fire({ icon: 'warning', title: 'No field selected', text: 'Click inside a text box first, then record.' });
     return;
   }
-  const target = activeTextarea;   // keep the field that was active when recording started
+  const target = activeTextarea;
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recStream = stream;
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
       .find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
     audioChunks = [];
@@ -497,9 +630,11 @@ async function globalRecord(btn) {
     mediaRecorder.ondataavailable = (ev) => { if (ev.data.size > 0) audioChunks.push(ev.data); };
 
     mediaRecorder.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());   // release the mic (turns off the browser's recording indicator)
+      stopSilenceMonitor();
+      (recStream || stream).getTracks().forEach(t => t.stop());
+      recStream = null;
       btn.classList.replace('btn-danger', 'btn-outline-danger');
-      btn.innerHTML = '<i class="bi bi-mic"></i> <span class="ai-txt">Record Voice</span>';
+      btn.innerHTML = '<i class="bi bi-mic"></i> <span class="ai-txt">Record Voice</span><span class="kbd-hint">Alt+1</span>';
       aiStatus('<i class="bi bi-soundwave text-warning"></i> Transcribing...');
 
       const fd = new FormData();
@@ -523,16 +658,22 @@ async function globalRecord(btn) {
     };
 
     mediaRecorder.start();
+    startSilenceMonitor(stream, () => {
+      aiStatus('<i class="bi bi-mic-mute text-warning"></i> Silence detected — stopping recording.');
+      if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+    });
+
     btn.classList.replace('btn-outline-danger', 'btn-danger');
-    btn.innerHTML = '<i class="bi bi-stop-fill"></i> <span class="ai-txt">Stop Recording</span>';
-    aiStatus('<i class="bi bi-mic-fill text-danger"></i> Listening... press Stop when done.');
+    btn.innerHTML = '<i class="bi bi-stop-fill"></i> <span class="ai-txt">Stop Recording</span><span class="kbd-hint">Alt+1</span>';
+    aiStatus('<i class="bi bi-mic-fill text-danger"></i> Listening... auto-stops after 3 s of silence, or press Stop.');
   } catch (err) {
     console.error(err);
+    stopSilenceMonitor();
     Swal.fire({ icon: 'error', title: 'Microphone unavailable', text: 'Allow microphone access for this site in your browser settings.' });
   }
 }
 
-// 2. Polish / summarize
+/* ---------- polish / summarize ---------- */
 async function globalPolish(action) {
   if (!activeTextarea || !activeTextarea.value.trim()) {
     Swal.fire({ icon: 'warning', title: 'Empty field', text: 'Select a text box that already has text.' });
@@ -561,5 +702,44 @@ async function globalPolish(action) {
     aiStatus('<i class="bi bi-x-circle text-danger"></i> Request failed.');
   }
 }
+
+/* ---------- keyboard shortcuts: Alt+1..5 ---------- */
+function _isTypingInField(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (tag === 'INPUT') {
+    const t = el.type;
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'file'].includes(t);
+  }
+  return el.isContentEditable;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!e.altKey || e.ctrlKey || e.metaKey) return;
+  const map = { '1': 'record', '2': 'expand', '3': 'improve', '4': 'rca', '5': 'action_steps' };
+  const action = map[e.key];
+  if (!action) return;
+
+  // Don't hijack while someone types plain text in the form.
+  // We DO allow it while focus is in a textarea (that's where you want to act),
+  // but not while typing digits into a number/text input.
+  const active = document.activeElement;
+  if (_isTypingInField(active) && active.tagName !== 'TEXTAREA') return;
+
+  const btn = document.querySelector(`#aiToolbar [data-action="${action}"]`);
+  if (!btn) return;
+  e.preventDefault();
+  btn.click();
+});
+
+/* make sure stopping via the browser (e.g. tab close) releases mic + monitors */
+window.addEventListener('beforeunload', () => {
+  stopSilenceMonitor();
+  if (recStream) recStream.getTracks().forEach(t => t.stop());
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    try { mediaRecorder.stop(); } catch (_) {}
+  }
+});
 </script>
 {% endblock %}

@@ -2,8 +2,8 @@
 completeness is checked on submit (Event.completeness_errors)."""
 from django import forms
 from django.db.models import Q
-
-from .models import ContractImpact, Event, Staff, Plant, Project, Activity, Discipline, Crew , OutsideStaff
+from django.forms import inlineformset_factory
+from .models import ContractImpact, Event, Staff, Plant, Project, Activity, Discipline, Crew , OutsideStaff, EventPlantDelay
 
 STEPS = [
     (1, "Event details"),
@@ -199,7 +199,11 @@ class Step1Form(StepForm):
                 return None
             return (Discipline.objects.filter(name__iexact=name).first()
                     or Discipline.objects.create(name=name))
-
+    def clean_km_marker(self):
+        val = self.cleaned_data.get("km_marker")
+        if val in [None, ""]:
+            return None
+        return val
     def clean_crew_involved(self):
         raw_values = self.cleaned_data.get("crew_involved", [])
         staff_list = []
@@ -240,39 +244,209 @@ class Step1Form(StepForm):
                     outside_objs.append(obj)
                 self.instance.others_involved.set(outside_objs)
 
+class EventTypeWidget(forms.CheckboxSelectMultiple):
+    """Tick boxes that carry data-code on every option, so the page can react to them:
+    data-hse    -> ticking it shows the Safety / HSE reminder
+    data-other  -> ticking it shows the "Other (specify)" box"""
+    HSE_CODES = {"safety_hse"}      # Option.code values that trigger the HSE reminder
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        opt = super().create_option(name, value, label, selected, index, subindex=subindex, attrs=attrs)
+        code = getattr(getattr(value, "instance", None), "code", "") or ""
+        opt["attrs"]["data-code"] = code
+        if code in self.HSE_CODES:
+            opt["attrs"]["data-hse"] = True
+        if code == "other" or str(label).strip().lower().startswith("other"):
+            opt["attrs"]["data-other"] = True
+        return opt
+
+
+# Step 2 layout. Groups and tips are keyed by Option.code (Admin > Options > "Type of event").
+# A code that is not listed here still shows up, under "More types", just without a tip.
+# Edit this freely; nothing in the database has to change.
+TYPE_GROUPS = [
+    # (key, heading, bootstrap-icon, [option codes in display order])
+    ("safety", "Safety & environment", "bi-shield-exclamation",
+     ["safety_hse", "near_miss", "environmental"]),
+    ("site", "Site conditions", "bi-cloud-lightning-rain",
+     ["weather", "ground_conditions", "access", "utilities", "third_party"]),
+    ("works", "Works, design & resources", "bi-tools",
+     ["design_change", "quality", "plant_breakdown", "materials", "resources"]),
+    ("commercial", "Client & commercial", "bi-briefcase",
+     ["client_instruction", "variation", "delay", "dispute"]),
+]
+
+TYPE_TIPS = {
+    "safety_hse": "Injury, unsafe act or condition, or any health, safety or environmental incident. Ticking this shows the incident-reporting reminder.",
+    "near_miss": "Something that could have caused harm or damage but did not.",
+    "environmental": "A spill, dust, noise, waste or any other impact on the environment or neighbours.",
+    "weather": "Rain, wind, heat, flooding or other weather that stopped or slowed the work.",
+    "ground_conditions": "Ground that is different from what was expected, such as rock, soft ground or water.",
+    "access": "Access to the site or work area was blocked, restricted or unavailable.",
+    "utilities": "An unplanned service or utility was found, hit, damaged or had to be moved.",
+    "third_party": "Someone outside the project caused or affected the event, such as the public, another contractor or a service owner.",
+    "design_change": "Drawings or specifications were changed, were unclear or did not match site conditions.",
+    "quality": "Work failed inspection, needs rework or does not meet specification.",
+    "plant_breakdown": "A machine or vehicle broke down or was not available.",
+    "materials": "Material was late, short, wrong or damaged.",
+    "resources": "Not enough people or equipment to do the work as planned.",
+    "client_instruction": "The client directed a change, stop or resequence of the work.",
+    "variation": "Work outside the original scope that may need a variation.",
+    "delay": "The event delayed the work. You will give the details in step 4.",
+    "dispute": "A disagreement with the client or another party about what happened or who is responsible.",
+}
+TYPE_OTHER_TIP = "Pick this only if none of the other types fit. A box will open so you can describe it."
+
+
+# Step 2 layout. Each type is matched by a keyword found in its label (or code), so this keeps
+# working when the admin renames an option slightly. Anything that matches nothing still shows up,
+# under "More types", just without a tooltip. Edit this freely; nothing in the database has to change.
+TYPE_GROUPS = [
+    # (key, heading, bootstrap-icon, [(keyword, tooltip), ...] in display order)
+    ("safety", "Safety & weather", "bi-shield-exclamation", [
+        ("safety", "Injury, unsafe act or condition, or any health, safety or environmental incident. Ticking this shows the incident-reporting reminder."),
+        ("weather", "Rain, wind, heat, flooding or other weather that stopped or slowed the work."),
+    ]),
+    ("client", "Client & access", "bi-person-badge", [
+        ("client direction", "The client directed a change, stop or resequence of the work. A verbal direction must be confirmed in writing."),
+        ("client resource", "A client person, equipment or service you depended on was not available when needed."),
+        ("design", "Drawings or specifications were missing, late, unclear or did not match site conditions."),
+        ("access", "Access to the work area, a possession or a permit was not available, was late or was cancelled."),
+    ]),
+    ("readiness", "Inspection & readiness", "bi-clipboard-check", [
+        ("inspection", "Work held up waiting for an inspection, CVC sign-off or a commissioning step."),
+        ("ccms", "The CCMS or switchover was not ready when the work needed it."),
+        ("defect", "Equipment was found defective, or a non-conformance report (NCR) was raised."),
+    ]),
+    ("resources", "Materials, plant & subcontractors", "bi-truck", [
+        ("free issue", "Free-issue material (such as skids or batteries) was late, short, wrong or damaged."),
+        ("subcontractor", "A Wabtec or subcontractor crew or resource was not available or did not turn up."),
+        ("plant or vehicle", "A machine or vehicle broke down or was not available."),
+    ]),
+]
+TYPE_OTHER_TIP = "Pick this only if none of the other types fit. A box will open so you can describe it."
+
+
 class Step2Form(StepForm):
+    tips = {
+        "event_types": "Tick every type that describes this event. One event can have several.",
+        "event_type_other": "A few words naming the type of event, so it can be added to the list later if it keeps coming up.",
+    }
+
     class Meta:
         model = Event
         fields = ["event_types", "event_type_other"]
-        widgets = {"event_types": forms.CheckboxSelectMultiple}
+        widgets = {"event_types": EventTypeWidget}
+        labels = {"event_types": "Event type"}
 
+    def type_groups(self):
+        """The tick boxes arranged for the template: [{key, title, icon, safety, items:[{bw, code, tip, hse, other}]}]."""
+        norm = lambda t: " ".join(str(t).lower().replace("_", " ").replace("-", " ").split())
+        groups = [{"key": g[0], "title": g[1], "icon": g[2], "rules": g[3], "items": []} for g in TYPE_GROUPS]
+        more = {"key": "more", "title": "More types", "icon": "bi-three-dots", "items": []}
+        for pos, bw in enumerate(self["event_types"]):
+            attrs = bw.data["attrs"]
+            code = attrs.get("data-code", "")
+            is_other = "data-other" in attrs
+            text = norm(bw.data["label"]) + " | " + norm(code)
+            item = {"bw": bw, "code": code, "hse": "data-hse" in attrs, "other": is_other, "tip": None, "rank": 0}
+            home = None
+            if not is_other:
+                for g in groups:
+                    for rank, (kw, tip) in enumerate(g["rules"]):
+                        if kw in text:
+                            home, item["tip"], item["rank"] = g, tip, rank
+                            break
+                    if home:
+                        break
+            if is_other:
+                item["tip"], item["rank"] = TYPE_OTHER_TIP, 10_000
+            else:
+                item["rank"] = item["rank"] if home else 5_000 + pos
+            (home or more)["items"].append(item)
+        out = [g for g in groups if g["items"]]
+        if more["items"]:
+            if not out:
+                more["title"], more["icon"] = "Types", "bi-list-check"
+            out.append(more)
+        for g in out:
+            g["items"].sort(key=lambda i: i["rank"])
+            g["safety"] = any(i["hse"] for i in g["items"])
+        return out
 
 class Step3Form(StepForm):
+    tips = {
+        "description": "Write what you saw, not what you think: what happened, where (area or km marker), who was involved and the order things happened in. Leave out opinions and blame.",
+        "cause": "Fill this in only if the cause is known. If you are not sure, leave it blank rather than guess. It can be added after the investigation.",
+        "action_taken": "What was done on site straight away, such as making the area safe, stopping work, telling the supervisor or moving crews. Future actions go in the follow-up actions step.",
+    }
+
     class Meta:
         model = Event
-        fields = ["description", "cause", "action_taken"]
-        widgets = {k: forms.Textarea(attrs={"rows": 5 if k == "description" else 3}) for k in fields}
+        fields = ["description", "cause", "cause_unknown", "action_taken"]
+        widgets = {
+            "description": forms.Textarea(attrs={
+                "rows": 5,
+                "placeholder": "Example: At 09:30 heavy rain stopped excavation at km 12.4. The crew of 6 left the trench and the supervisor was told.",
+            }),
+            "cause": forms.Textarea(attrs={
+                "rows": 3,
+                "placeholder": "Only if known. Example: heavy overnight rain softened the ground.",
+            }),
+            "action_taken": forms.Textarea(attrs={
+                "rows": 3,
+                "placeholder": "Example: Work stopped, area barricaded, supervisor informed at 09:35.",
+            }),
+            # the review screen shows this text when the switch is on, and nothing when it is off
+            "cause_unknown": forms.CheckboxInput(attrs={"data-review-yes": "Not known yet"}),
+        }
 
 
 class Step4Form(StepForm):
+    """Event-level delay fields in Step 4 (the plant list is the formset below)."""
+    tips = {
+        "delay_status": "Yes: work was stopped or slowed. Potential delay: nothing has stopped yet, but later work may be affected. No delay: the event did not affect the work.",
+        "people_stood_down": "How many people could not work, or worked below normal, because of this event.",
+        "on_critical_path": "Does the delayed work sit on the sequence of activities that sets the project finish date? If it does, the finish date may move. Choose Unknown if you are not sure and the planner will check.",
+        "caused_by": "Who the delay came from: the client or work upstream of us, a subcontractor or work downstream of us, or Wabtec itself.",
+        "mitigation": "What was done, or could be done, to reduce the delay, such as moving the crew to other work.",
+        "potential_delay_justification": "Explain why later work might be affected and which activities could be hit.",
+    }
+
     class Meta:
         model = Event
-        fields = ["delay_status", "delay_from", "delay_to", "hours_lost", "people_stood_down", "plant",
-                  "plant_on_standby", "activities_affected", "on_critical_path", "caused_by", "mitigation"]
+        fields = ["delay_status", "people_stood_down", "on_critical_path", "caused_by", "mitigation", "potential_delay_justification"]
         widgets = {
             "delay_status": forms.RadioSelect,
             "on_critical_path": forms.RadioSelect,
             "caused_by": forms.RadioSelect,
-            "delay_from": forms.TimeInput(format="%H:%M", attrs={"data-time": ""}),
-            "delay_to": forms.TimeInput(format="%H:%M", attrs={"data-time": ""}),
-            "plant_on_standby": forms.Textarea(attrs={"rows": 2}),
-            "activities_affected": forms.Textarea(attrs={"rows": 2}),
-            "mitigation": forms.Textarea(attrs={"rows": 2}),
+            "mitigation": forms.Textarea(attrs={
+                "rows": 4,
+                "placeholder": "Example: Crew moved to the next work area while the access permit was sorted out.",
+            }),
+            "potential_delay_justification": forms.Textarea(attrs={
+                "rows": 3,
+                "placeholder": "Example: The same crew is needed for the switchover next week, which this could push back.",
+            }),
         }
 
-    def __init__(self, *a, **kw):
-        super().__init__(*a, **kw)
-        self._limit("plant", Plant.objects.filter(is_active=True))
+
+# The plant list. The picker on the page adds rows; each row only needs the plant id and the hours,
+# so the plant is a hidden field (no per-row dropdown with every plant in it).
+EventPlantDelayFormSet = inlineformset_factory(
+    Event,
+    EventPlantDelay,
+    fields=["plant", "hours_lost"],
+    extra=0,
+    can_delete=True,
+    widgets={
+        "plant": forms.HiddenInput(attrs={"class": "plant-id"}),
+        "hours_lost": forms.NumberInput(attrs={
+            "class": "form-control plant-hours", "step": "0.1", "min": "0",
+            "inputmode": "decimal", "placeholder": "Hours",
+        }),
+    },
+)
 
 
 class Step5Form(StepForm):

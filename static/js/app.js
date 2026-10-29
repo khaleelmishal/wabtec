@@ -40,6 +40,7 @@
       new TomSelect(el, {
         plugins: el.multiple ? ["remove_button"] : [],
         allowEmptyOption: true, create: false, maxOptions: null,
+        dropdownParent: el.getAttribute("data-dropdown-parent") || null,   // data-dropdown-parent="body": float over the page
         placeholder: el.getAttribute("placeholder") || "Select...",
       });
     });
@@ -83,17 +84,6 @@
       all("input[data-datetime]").forEach(function (el) { once(el, { enableTime: true, dateFormat: "Y-m-d H:i", altFormat: "d M Y H:i" }); });
     }
 
-    /* Tooltips: <i class="tip" data-bs-toggle="tooltip" data-bs-title="..."> (see events/_tip.html) */
-    if (window.bootstrap && bootstrap.Tooltip) {
-      all('[data-bs-toggle="tooltip"]').forEach(function (el) {
-        if (el._tipDone) return;
-        el._tipDone = true;
-        // own click handler: stops a surrounding <label> grabbing focus, and makes iOS treat the icon as tappable
-        el.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); });
-        new bootstrap.Tooltip(el, { container: "body", trigger: "hover focus", placement: "top", customClass: "wpu-tip" });
-      });
-    }
-
     /* DataTables (v2) */
     if (window.DataTable) {
       all("table.dt").forEach(function (el) {
@@ -128,6 +118,53 @@
     f.addEventListener("submit", function () { f.dirty = false; });
     window.addEventListener("beforeunload", function (e) { if (f.dirty) { e.preventDefault(); e.returnValue = ""; } });
   });
+
+  /* ---- tooltips: <i class="tip" data-tip="..."> (see events/_tip.html). No Bootstrap needed, works for HTML added later ---- */
+  (function () {
+    var tipEl = null, owner = null, shownAt = 0, touchAt = 0, timer = null;
+    function hide() {
+      clearTimeout(timer);
+      if (tipEl) { tipEl.remove(); tipEl = null; }
+      if (owner) { owner.removeAttribute("aria-describedby"); owner = null; }
+    }
+    function place() {
+      var r = owner.getBoundingClientRect(), t = tipEl.getBoundingClientRect(), m = 8;
+      var vw = document.documentElement.clientWidth, cx = r.left + r.width / 2;
+      var left = Math.max(m, Math.min(cx - t.width / 2, vw - t.width - m));
+      var below = r.top - t.height - 10 < m;
+      tipEl.classList.toggle("below", below);
+      tipEl.style.left = left + "px";
+      tipEl.style.top = (below ? r.bottom + 10 : r.top - t.height - 10) + "px";
+      tipEl.style.setProperty("--ax", Math.max(12, Math.min(cx - left, t.width - 12)) + "px");
+    }
+    function show(el) {
+      var text = el.getAttribute("data-tip");
+      if (!text || owner === el) return;
+      hide();
+      tipEl = document.createElement("div");
+      tipEl.className = "wpu-tooltip"; tipEl.id = "wpuTip"; tipEl.setAttribute("role", "tooltip");
+      tipEl.textContent = text;
+      document.body.appendChild(tipEl);
+      owner = el; shownAt = Date.now();
+      el.setAttribute("aria-describedby", "wpuTip");
+      place();
+      if (Date.now() - touchAt < 1000) timer = setTimeout(hide, 6000);   // touch: close by itself after a few seconds
+    }
+    var find = function (e) { return e.target && e.target.closest ? e.target.closest(".tip") : null; };
+    document.addEventListener("mouseover", function (e) { var t = find(e); if (t) show(t); });
+    document.addEventListener("mouseout", function (e) { if (find(e) && Date.now() - touchAt > 1000) hide(); });   // ignore the mouseout some browsers fire right after a tap
+    document.addEventListener("focusin", function (e) { var t = find(e); if (t) show(t); });
+    document.addEventListener("focusout", function (e) { if (find(e)) hide(); });
+    document.addEventListener("click", function (e) {
+      var t = find(e); if (!t) return;
+      e.preventDefault(); e.stopPropagation();            // stop the surrounding <label> from focusing its field
+      if (owner === t && Date.now() - shownAt > 400) hide(); else show(t);
+    }, true);
+    document.addEventListener("touchstart", function (e) { touchAt = Date.now(); if (!find(e)) hide(); }, { passive: true });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") hide(); });
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+  })();
 
   /* ---- CSRF header for fetch() calls ---- */
   var m = document.querySelector('meta[name="csrf-token"]');

@@ -14,8 +14,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView
 
-from .forms import STEP_FIELDS, STEP_FORMS, STEPS, m2m_names
-from .models import ContractImpact, Event, EventLog, FollowUpAction, Staff, Plant, Project, Activity, OutsideStaff
+from .forms import STEP_FIELDS, STEP_FORMS, STEPS, EventPlantDelayFormSet, m2m_names
+from .models import ContractImpact, Event, EventLog, FollowUpAction, Option, Staff, Plant, Project, Activity, OutsideStaff, EventPlantDelay
 from core.services import get_groq_client, ask_groq
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,102 @@ def _touch_step(event, step):
 		Event.objects.filter(pk=event.pk).update(last_step=step)
 		event.last_step = step
 
+def _save_delay(request, event, seen):
+    user = request.user
+    try:
+        form = STEP_FORMS[4](request.POST, instance=event)
+        formset = EventPlantDelayFormSet(request.POST, instance=event)
+        
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        
+        errors = {}
+        if not form_valid:
+            errors.update(_errors(form))
+        if not formset_valid:
+            formset_err_list = []
+            for err_dict in formset.errors:
+                if err_dict:
+                    formset_err_list.append({k: [str(e) for e in v] for k, v in err_dict.items()})
+                else:
+                    formset_err_list.append({})
+            if formset.non_form_errors():
+                errors["__all__"] = [str(e) for e in formset.non_form_errors()]
+            if any(formset_err_list):
+                errors["plant_delays"] = formset_err_list
 
+        if errors:
+            return JsonResponse({"ok": False, "errors": errors})
+
+        has_form_changes = form.has_changed()
+        has_formset_changes = formset.has_changed()
+
+        if event is None and not (has_form_changes or has_formset_changes):
+            return JsonResponse({"ok": True, "id": None})
+            
+        if event is None:
+            event = Event()
+            event.last_step = seen
+            event.save(user=user, request=request)
+
+        # Save general event-level Step 4 fields
+        if form.has_changed():
+            obj = form.save(commit=False)
+            obj.last_step = seen
+            obj.save(user=user, request=request)
+        else:
+            if event.pk and event.last_step != seen:
+                event.last_step = seen
+                event.save(update_fields=["last_step"])
+
+        # Process formset rows with duplicate prevention / update logic
+        seen_plants = set()
+        for f_form in formset.forms:
+            if not f_form.cleaned_data:
+                continue
+            
+            # Handle deleted rows
+            if f_form.cleaned_data.get("DELETE", False):
+                instance = f_form.instance
+                if instance and instance.pk:
+                    instance.delete()
+                continue
+
+            plant = f_form.cleaned_data.get("plant")
+            hours_lost = f_form.cleaned_data.get("hours_lost")
+            activity = f_form.cleaned_data.get("activity") if "activity" in f_form.cleaned_data else None
+
+            if not plant:
+                continue
+
+            # Deduplicate if the same plant was sent multiple times in the payload
+            if plant in seen_plants:
+                continue
+            seen_plants.add(plant)
+
+            # Check if a delay record already exists for this event and plant
+            existing = EventPlantDelay.objects.filter(event=event, plant=plant).first()
+            if existing:
+                existing.hours_lost = hours_lost
+                if activity is not None:
+                    existing.activity = activity
+                existing.save(user=user)  # Removed request=request
+            else:
+                # Instantiate and save to properly trigger AuditModel user tracking
+                delay_obj = EventPlantDelay(
+                    event=event,
+                    plant=plant,
+                    hours_lost=hours_lost,
+                    activity=activity
+                )
+                delay_obj.save(user=user)
+
+        _touch_step(event, seen)
+        return _ok(request, event)
+    except Exception as e:
+        logger.exception("Error in delay save step 4 for user=%s event=%s: %s", user.username, getattr(event, 'pk', None), e)
+        return JsonResponse({"ok": False, "error": "An error occurred while saving plant delay details. Please try again later."}, status=500)
+	
 # --------------------------------------------------------------------------
 # Follow-up actions (section 7)
 # --------------------------------------------------------------------------
@@ -189,27 +284,45 @@ def event_list(request):
 
 
 def _render_form(request, event):
-	steps = visible_steps(request.user)
-	ctx = _sidebar(request, event.pk if event else None)
-	contract = getattr(event, "contract", None) if event else None
-	for n, cls in STEP_FORMS.items():
-		ctx[f"f{n}"] = cls(instance=contract if n == 7 else event)
-	urls = {
-		"save_new": reverse("event_save_new", args=[0]).replace("/0/", "/{step}/"),
-		"save": reverse("event_save", args=[0, 0]).replace("/0/save/0/", "/{id}/save/{step}/"),
-		"submit": reverse("event_submit", args=[0]).replace("/0/", "/{id}/"),
-		"edit": reverse("event_edit", args=[0]).replace("/0/", "/{id}/"),
-	}
-	ctx.update({
-		"event": event, "steps": steps, "step_titles": [(n, t) for n, t in STEPS if n in steps],
-		"followups": list(contract.followups.select_related("owner")) if contract else [],
-		"staff_list": Staff.objects.filter(is_active=True).select_related("company"),
-		"ev_config": {"id": event.pk if event else None, "steps": steps, "urls": urls,
-					  "start": event.last_step if event and event.last_step in steps else steps[0],
-					  "finished": bool(event and event.is_finished)},
-		"reporter": event.reported_by if event else request.user,
-	})
-	return render(request, "events/event_form.html", ctx)
+    steps = visible_steps(request.user)
+    ctx = _sidebar(request, event.pk if event else None)
+    contract = getattr(event, "contract", None) if event else None
+    
+    plant_formset = EventPlantDelayFormSet(instance=event)
+    available_plants = Plant.objects.filter(is_active=True)
+    
+    for n, cls in STEP_FORMS.items():
+        ctx[f"f{n}"] = cls(instance=contract if n == 7 else event)
+        
+    urls = {
+        "save_new": reverse("event_save_new", args=[0]).replace("/0/", "/{step}/"),
+        "save": reverse("event_save", args=[0, 0]).replace("/0/save/0/", "/{id}/save/{step}/"),
+        "submit": reverse("event_submit", args=[0]).replace("/0/", "/{id}/"),
+        "edit": reverse("event_edit", args=[0]).replace("/0/", "/{id}/"),
+    }
+    
+    ctx.update({
+        "event": event, 
+        "steps": steps, 
+        "step_titles": [(n, t) for n, t in STEPS if n in steps],
+        "followups": list(contract.followups.select_related("owner")) if contract else [],
+        "staff_list": Staff.objects.filter(is_active=True).select_related("company"),
+        
+        # ---> ADD THESE TWO LINES HERE <---
+        "plant_formset": plant_formset,
+        "available_plants": available_plants,
+        # -----------------------------------
+        
+        "ev_config": {
+            "id": event.pk if event else None, 
+            "steps": steps, 
+            "urls": urls,
+            "start": event.last_step if event and event.last_step in steps else steps[0],
+            "finished": bool(event and event.is_finished)
+        },
+        "reporter": event.reported_by if event else request.user,
+    })
+    return render(request, "events/event_form.html", ctx)
 
 
 @login_required
@@ -259,6 +372,8 @@ def event_save(request, step, pk=None):
 
         if step == 7:
             return _save_contract(request, event, seen)
+        if step == 4:
+            return _save_delay(request, event, seen)
 
         form = STEP_FORMS[step](request.POST, instance=event)
         if not form.is_valid():
@@ -274,14 +389,12 @@ def event_save(request, step, pk=None):
         obj.save(user=user, request=request)
         _save_m2m(obj, form, user, request)
         
-        # ---> ADD THIS BLOCK TO SAVE OUTSIDE STAFF (OTHERS_INVOLVED) <---
         if hasattr(form, '_cleaned_outside_names'):
             outside_objs = []
             for name in form._cleaned_outside_names:
                 ext_obj, _ = OutsideStaff.objects.get_or_create(name=name)
                 outside_objs.append(ext_obj)
             obj.set_m2m("others_involved", outside_objs, user=user, request=request)
-        # -------------------------------------------------------------
 
         return _ok(request, obj)
     except Exception as e:
@@ -325,31 +438,49 @@ def _save_contract(request, event, seen):
 @login_required
 @require_POST
 def event_submit(request, pk):
-	try:
-		event = _get_event(request.user, pk)
-		if not event:
-			return JsonResponse({"ok": False, "error": "The requested event could not be found or access is denied."}, status=404)
-		if event.is_finished:
-			return JsonResponse({"ok": True, "redirect": reverse("event_edit", args=[pk])})
-		
-		event.submit(request.user, request)
-		messages.success(request, f"{event.event_no} submitted.")
-		return JsonResponse({"ok": True, "redirect": reverse("event_edit", args=[pk])})
-	except ValidationError as e:
-		if not hasattr(e, "error_dict"):  # raised with a plain message/list, no per-field dict
-			return JsonResponse({"ok": False, "errors": {}, "summary": list(e.messages)})
-		by_step, summary = {}, []
-		labels = {f.name: f.verbose_name for f in Event._meta.get_fields() if hasattr(f, "verbose_name")}
-		for field, msgs in e.message_dict.items():
-			step = next((n for n, names in STEP_FIELDS.items() if field in names), 1)
-			by_step.setdefault(str(step), {})[field] = msgs
-			summary.append(f"Step {step} - {str(labels.get(field, field)).capitalize()}: {' '.join(msgs)}")
-		return JsonResponse({"ok": False, "errors": by_step, "summary": summary})
-	except Exception as e:
-		logger.exception("Unexpected error submitting event pk=%s user=%s: %s", pk, request.user.username, e)
-		return JsonResponse({"ok": False, "error": "An unexpected error occurred while submitting the event. Please try again later or contact admin."}, status=500)
+    try:
+        event = _get_event(request.user, pk)
+        if not event:
+            return JsonResponse({"ok": False, "error": "The requested event could not be found or access is denied."}, status=404)
+        if event.is_finished:
+            return JsonResponse({"ok": True, "redirect": reverse("event_edit", args=[pk])})
+        
+        # --- Convert 'other' text into a new Option choice upon submission ---
+        if event.event_type_other and event.event_type_other.strip():
+            custom_name = event.event_type_other.strip()
+            
+            # Get or create the new Option under the event_type category
+            et_obj, _ = Option.objects.get_or_create(
+                category=Option.Category.EVENT_TYPE,
+                name__iexact=custom_name,
+                defaults={"name": custom_name}
+            )
+            
+            # Link it to the event's event_types ManyToMany relation
+            event.event_types.add(et_obj)
+            
+            # Clear the keepsake field so it doesn't persist redundant text
+            event.event_type_other = ""
+            event.save(update_fields=["event_type_other"])
+        # -----------------------------------------------------------------------
 
-
+        event.submit(request.user, request)
+        messages.success(request, f"{event.event_no} submitted.")
+        return JsonResponse({"ok": True, "redirect": reverse("event_edit", args=[pk])})
+        
+    except ValidationError as e:
+        if not hasattr(e, "error_dict"):  
+            return JsonResponse({"ok": False, "errors": {}, "summary": list(e.messages)})
+        by_step, summary = {}, []
+        labels = {f.name: f.verbose_name for f in Event._meta.get_fields() if hasattr(f, "verbose_name")}
+        for field, msgs in e.message_dict.items():
+            step = next((n for n, names in STEP_FIELDS.items() if field in names), 1)
+            by_step.setdefault(str(step), {})[field] = msgs
+            summary.append(f"Step {step} - {str(labels.get(field, field)).capitalize()}: {' '.join(msgs)}")
+        return JsonResponse({"ok": False, "errors": by_step, "summary": summary})
+    except Exception as e:
+        logger.exception("Unexpected error submitting event pk=%s user=%s: %s", pk, request.user.username, e)
+        return JsonResponse({"ok": False, "error": "An unexpected error occurred while submitting the event. Please try again later or contact admin."}, status=500)
 # --------------------------------------------------------------------------
 # AI Integration Views (Shielded from third-party API errors)
 # --------------------------------------------------------------------------
