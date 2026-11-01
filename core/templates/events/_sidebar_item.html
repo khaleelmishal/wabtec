@@ -1,10 +1,12 @@
-<li class="rep{% if e.pk == active_pk %} active{% endif %}" data-event-id="{{ e.pk }}" data-status="{% if e.is_finished %}finished{% else %}ongoing{% endif %}">
+{% url 'event_delete' e.pk as del_url %}<li class="rep position-relative{% if e.pk == active_pk %} active{% endif %}" data-event-id="{{ e.pk }}" data-status="{{ e.status }}" data-mine="{% if e.reported_by_id == user.id %}1{% else %}0{% endif %}" data-search="{{ e.event_no|lower }} {{ e.title|lower }} {{ e.reported_by.get_full_name|default:e.reported_by.username|lower }}">
   <a href="{% url 'event_edit' e.pk %}">
     <div class="d-flex justify-content-between align-items-start gap-2">
       <strong>{{ e.event_no }}</strong>
-      <span class="badge {% if e.is_finished %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if e.is_finished %}Submitted{% else %}Draft{% endif %}</span>
+      {% if e.status == 'draft' and e.submitted_at %}<span class="badge text-bg-danger" title="Sent back by the Construction Manager. Open it to see why.">Returned</span>
+      {% else %}<span class="badge {% if e.status == 'draft' %}text-bg-warning{% elif e.status == 'processed' %}text-bg-success{% else %}text-bg-primary{% endif %}">{{ e.get_status_display }}</span>{% endif %}
     </div>
     <div class="rep-title text-truncate">{{ e.title }}</div>
-    <div class="rep-meta">{{ e.event_date|date:"d M Y"|default:"No date yet" }} &middot; edited {{ e.updated_at|timesince }} ago</div>
+    <div class="rep-meta">{{ e.event_date|date:"d M Y"|default:"No date yet" }} &middot; {% if e.reported_by_id == user.id %}you{% else %}{{ e.reported_by.get_full_name|default:e.reported_by.username }}{% endif %} &middot; {% if e.status == 'draft' %}edited {{ e.updated_at|timesince }} ago{% else %}submitted {{ e.submitted_at|timesince }} ago{% endif %}</div>
   </a>
+  {% if e.status == 'draft' and e.submitted_at is None and e.reported_by_id == user.id and del_url %}<button type="button" class="btn btn-sm btn-link text-danger p-0 position-absolute bottom-0 end-0 m-2" data-draft-delete-url="{{ del_url }}" title="Delete this draft" aria-label="Delete this draft"><i class="bi bi-trash" aria-hidden="true"></i></button>{% endif %}
 </li>

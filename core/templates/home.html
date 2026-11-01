@@ -10,11 +10,42 @@
   <div>
     <h2 class="h5 fw-bold mb-0">Hello, {{ user.get_full_name|default:user.username }}</h2>
     <p class="note mb-2">What would you like to do?</p>
-    {% url 'event_create' as url_new %}
-    <a class="tile" href="{{ url_new }}">
+    {% url 'event_create' as url_new %}{% url 'event_list' as url_list %}{% url 'manager_dashboard' as url_dash %}
+
+    {% if n_returned %}
+    <a class="tile mb-2 border-danger" href="{{ url_list }}?tab=draft">
+      <span class="ico text-danger"><i class="bi bi-arrow-return-left"></i></span>
+      <span class="t">Returned to you <span class="badge text-bg-danger">{{ n_returned }}</span></span>
+      <span class="s">The Construction Manager needs something fixed. Open it, fix it, submit again.</span>
+    </a>
+    {% endif %}
+
+    {% if is_cm and url_dash %}
+    <a class="tile mb-2" href="{{ url_dash }}">
+      <span class="ico"><i class="bi bi-inbox"></i></span>
+      <span class="t">Waiting for your review <span class="badge {% if n_for_cm %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ n_for_cm }}</span></span>
+      <span class="s">Submitted reports that nobody has processed yet</span>
+    </a>
+    {% endif %}
+
+    <a class="tile mb-2" href="{{ url_new }}">
       <span class="ico"><i class="bi bi-journal-plus"></i></span>
       <span class="t">Submit an event</span>
       <span class="s">Record a site event on the day it happens</span>
+    </a>
+
+    {% if n_drafts %}
+    <a class="tile mb-2" href="{{ url_list }}?tab=draft">
+      <span class="ico"><i class="bi bi-pencil-square"></i></span>
+      <span class="t">My drafts <span class="badge text-bg-warning">{{ n_drafts }}</span></span>
+      <span class="s">Carry on where you left off</span>
+    </a>
+    {% endif %}
+
+    <a class="tile mb-2" href="{{ url_list }}">
+      <span class="ico"><i class="bi bi-list-ul"></i></span>
+      <span class="t">All reports{% if n_waiting %} <span class="badge text-bg-primary" title="Your reports waiting for the Construction Manager">{{ n_waiting }} of yours waiting</span>{% endif %}</span>
+      <span class="s">Read submitted and processed reports from everyone</span>
     </a>
   </div>
 </div>

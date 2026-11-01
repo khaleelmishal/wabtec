@@ -1,14 +1,110 @@
 <div class="rep-head">
-  <h2 class="h6 m-0 fw-bold text-uppercase">My reports</h2>
+  <h2 class="h6 m-0 fw-bold text-uppercase">Reports</h2>
   <a class="btn btn-sm btn-primary" href="{% url 'event_create' %}"><i class="bi bi-plus-lg"></i> New</a>
 </div>
 <div class="rep-filter btn-group btn-group-sm w-100" role="group" aria-label="Filter reports">
-  <button type="button" class="btn btn-outline-secondary active" data-filter="all">All <span data-count="all">{{ n_all }}</span></button>
-  <button type="button" class="btn btn-outline-secondary" data-filter="ongoing">Drafts <span data-count="ongoing">{{ n_ongoing }}</span></button>
-  <button type="button" class="btn btn-outline-secondary" data-filter="finished">Submitted <span data-count="finished">{{ n_finished }}</span></button>
+  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'all' %} active{% endif %}" data-filter="all">All <span data-count="all">{{ n_all }}</span></button>
+  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'draft' %} active{% endif %}" data-filter="draft" title="Your own drafts. Only you can see them.">Drafts <span data-count="draft">{{ n_draft }}</span></button>
+  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'submitted' %} active{% endif %}" data-filter="submitted">Submitted <span data-count="submitted">{{ n_submitted }}</span></button>
+  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'processed' %} active{% endif %}" data-filter="processed">Processed <span data-count="processed">{{ n_processed }}</span></button>
+</div>
+<div class="d-flex align-items-center gap-2 my-2">
+  <input type="search" id="repSearch" class="form-control form-control-sm" placeholder="Search number, title or name" aria-label="Search reports" autocomplete="off">
+  <div class="form-check form-switch m-0 text-nowrap" title="Show only the reports you wrote">
+    <input class="form-check-input" type="checkbox" role="switch" id="repMine"><label class="form-check-label small" for="repMine">Mine</label>
+  </div>
 </div>
 <ul id="reportList" class="rep-list list-unstyled m-0">
   {% for e in reports %}{% include "events/_sidebar_item.html" %}{% empty %}
   <li id="noReports" class="note p-3">No reports yet. Start one with <strong>New</strong>.</li>
   {% endfor %}
+  <li id="emptyFilter" class="note p-3 d-none">Nothing in this view.</li>
 </ul>
+<script>
+/* The list on the left: which tab is on, the counts, and deleting a draft. Used on the list page and the form page. */
+(function () {
+  var list = document.getElementById("reportList"); if (!list) return;
+  var current = "{{ default_filter|default:'submitted'|escapejs }}";
+  var TABS = ["all", "draft", "submitted", "processed"];
+  var searchEl = document.getElementById("repSearch"), mineEl = document.getElementById("repMine");
+  try {                                                        // ?tab=draft opens that tab; "Mine" is remembered
+    var q = new URLSearchParams(window.location.search).get("tab");
+    if (TABS.indexOf(q) > -1) current = q;
+    if (mineEl && window.localStorage.getItem("repMine") === "1") mineEl.checked = true;
+  } catch (e) {}
+  Array.prototype.forEach.call(document.querySelectorAll("[data-filter]"), function (b) {
+    b.classList.toggle("active", b.dataset.filter === current);
+  });
+  function items() { return Array.prototype.slice.call(list.querySelectorAll("li[data-status]")); }
+  function mineOnly() { return !!(mineEl && mineEl.checked); }
+  function apply() {
+    var words = ((searchEl && searchEl.value) || "").toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
+    items().forEach(function (li) {
+      var text = li.dataset.search || li.textContent.toLowerCase();
+      var show = (current === "all" || li.dataset.status === current)
+        && (!mineOnly() || li.dataset.mine === "1")
+        && words.every(function (w) { return text.indexOf(w) > -1; });
+      li.classList.toggle("d-none", !show); if (show) shown++;
+    });
+    var none = document.getElementById("noReports"), empty = document.getElementById("emptyFilter");
+    if (empty) empty.classList.toggle("d-none", shown > 0 || !!none);
+  }
+  function counts() {                                          // the tab numbers follow "Mine", not the search words
+    var c = { all: 0, draft: 0, submitted: 0, processed: 0 };
+    items().forEach(function (li) {
+      if (mineOnly() && li.dataset.mine !== "1") return;
+      c.all++; c[li.dataset.status] = (c[li.dataset.status] || 0) + 1;
+    });
+    Object.keys(c).forEach(function (k) {
+      var el = document.querySelector('[data-count="' + k + '"]'); if (el) el.textContent = c[k];
+    });
+  }
+  function refresh() { apply(); counts(); }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-filter]"), function (b) {
+    b.addEventListener("click", function () {
+      current = b.dataset.filter;
+      Array.prototype.forEach.call(document.querySelectorAll("[data-filter]"), function (x) { x.classList.toggle("active", x === b); });
+      apply();
+    });
+  });
+  if (searchEl) searchEl.addEventListener("input", apply);
+  if (mineEl) mineEl.addEventListener("change", function () {
+    try { window.localStorage.setItem("repMine", mineEl.checked ? "1" : "0"); } catch (e) {}
+    refresh();
+  });
+  window.RepList = { apply: apply, counts: counts, refresh: refresh };
+  refresh();
+
+  /* delete a draft: a BUTTON with data-draft-delete-url (in the list, and in the form header).
+     Not data-delete-url: the file uploader on step 5 already uses that name for its own delete URL. */
+  function csrf() {
+    if (window.WPU && WPU.csrf) return WPU.csrf;
+    var m = /(?:^|; )csrftoken=([^;]+)/.exec(document.cookie); return m ? decodeURIComponent(m[1]) : "";
+  }
+  function ask() {
+    var text = "The draft and its files are removed. This cannot be undone.";
+    return window.WPU && WPU.confirm ? WPU.confirm(text, { title: "Delete this draft?", ok: "Delete", icon: "warning" })
+                                     : Promise.resolve(window.confirm("Delete this draft?"));
+  }
+  function say(kind, msg) { if (window.WPU && WPU.toast) WPU.toast(kind, msg); else window.alert(msg); }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("button[data-draft-delete-url]"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    ask().then(function (ok) {
+      if (!ok) return;
+      b.disabled = true;
+      fetch(b.dataset.draftDeleteUrl, { method: "POST", credentials: "same-origin",
+            headers: { "X-CSRFToken": csrf(), "X-Requested-With": "XMLHttpRequest" } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) { b.disabled = false; say("error", d.error || "Could not delete the draft."); return; }
+          var li = b.closest("li"); if (li) li.remove();
+          refresh();
+          if (!li || li.classList.contains("active") || b.dataset.leave) { window.location = d.redirect; return; }
+          say("success", "Draft deleted.");
+        })
+        .catch(function () { b.disabled = false; say("error", "Could not reach the server. Try again."); });
+    });
+  });
+})();
+</script>

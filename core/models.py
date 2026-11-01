@@ -38,7 +38,9 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models.functions import Now
-
+from django.db import models
+import uuid
+from decimal import Decimal, ROUND_HALF_UP
 # --------------------------------------------------------------------------
 # Auto-number formats (form shows "WPU-EV-" and "EV"; adjust here if needed)
 # --------------------------------------------------------------------------
@@ -63,7 +65,10 @@ class User(AbstractUser):
     @property
     def company_name(self):
         return self.staff.company.name if self.staff_id else ""
-
+    @property
+    def is_manager(self):
+        """Returns True if the user is a superuser or belongs to the 'Manager' group."""
+        return self.is_authenticated and (self.is_superuser or self.groups.filter(name="Manager").exists())
     @property
     def job_title(self):
         return self.staff.job_title if self.staff_id else ""
@@ -503,7 +508,7 @@ class Event(LoggedModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "Submitted"
-        REVIEWED = "reviewed", "Reviewed by CM"
+        PROCESSED = "processed", "Processed"
 
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT, db_index=True)
     last_step = models.PositiveSmallIntegerField(default=1, editable=False, help_text="Form step the person was on.")
@@ -512,7 +517,18 @@ class Event(LoggedModel):
         settings.AUTH_USER_MODEL, null=True, blank=True, editable=False,
         on_delete=models.SET_NULL, related_name="+",
     )
+    # A draft the reporter deleted. The row stays (the audit log is append-only and numbers are never reused)
+    # but the app no longer shows it to anyone. Always filter with deleted_at__isnull=True.
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False, db_index=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, editable=False,
+        on_delete=models.SET_NULL, related_name="+",
+    )
 
+    returned_note = models.TextField(blank=True, editable=False)
+    returned_at = models.DateTimeField(null=True, blank=True, editable=False)
+    returned_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, editable=False,
+                                    on_delete=models.SET_NULL, related_name="+")
     # ---- 1. Event details ------------------------------------------------
     # auto-generated
     event_no = models.CharField("Event No.", max_length=20, unique=True, null=True, editable=False)
@@ -567,11 +583,15 @@ class Event(LoggedModel):
     uploaded_to_other = models.CharField(max_length=200, blank=True)
     file_names_link = models.TextField("File names / link", blank=True)
     other_records = models.ManyToManyField(Option, blank=True, related_name="+", limit_choices_to=_opt("other_record"))
+    other_evidence = models.BooleanField("Evidence from other sources", default=False,
+                                         help_text="Switch on when the evidence is kept somewhere other than the uploaded files.")
 
     # ---- 6. Client notification ------------------------------------------
     client_notified = models.CharField("Client notified?", max_length=3, choices=YesNo.choices, default=YesNo.NO)
-    notified_who = models.CharField(max_length=160, blank=True)
-    notified_bhp_role = models.CharField("BHP role", max_length=160, blank=True)
+    notified_who = models.ForeignKey(
+        OutsideStaff, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="notified_events", verbose_name="Notified who"
+    )
     notified_how = models.ManyToManyField(Option, blank=True, related_name="+", limit_choices_to=_opt("notify_how"))
     notified_at = models.DateTimeField("Notified date / time", null=True, blank=True)
     notification_reference = models.CharField("Email subject / Aconex No.", max_length=200, blank=True)
@@ -599,10 +619,37 @@ class Event(LoggedModel):
     @property
     def is_safety_incident(self):
         return self.pk is not None and self.event_types.filter(code="safety_hse").exists()
-
+    @property
+    def notified_bhp_role(self):
+        return self.notified_who.job_title if self.notified_who_id else ""
     @property
     def is_finished(self):
         return self.status != self.Status.DRAFT
+
+    # -- who may do what (the only place these rules live) -----------------
+    def can_view(self, user):
+        """Submitted and processed reports are open to every signed-in user. A draft is private to its writer."""
+        if self.deleted_at is not None:
+            return False
+        return self.status != self.Status.DRAFT or self.reported_by_id == user.id
+
+    def can_edit(self, user):
+        """Only the writer, and only while it is a draft. Submitted reports are read-only for everyone."""
+        return self.deleted_at is None and self.status == self.Status.DRAFT and self.reported_by_id == user.id
+
+    def can_delete(self, user):
+        """The writer, on a draft that was never submitted (a draft the CM sent back keeps its history)."""
+        return self.can_edit(user) and self.submitted_at is None
+
+    @property
+    def other_evidence_on(self):
+        """The 'evidence from other sources' switch. Older drafts have no saved switch, so they count as
+        switched on when any of the other-source fields already holds something."""
+        if self.other_evidence:
+            return True
+        if (self.uploaded_to_other or "").strip() or (self.file_names_link or "").strip():
+            return True
+        return bool(self.pk and (self.uploaded_to.exists() or self.other_records.exists()))
 
     @property
     def title(self):
@@ -622,24 +669,96 @@ class Event(LoggedModel):
         if self.activity_id and self.project_id and self.activity.project_id != self.project_id:
             raise ValidationError({"activity": "This activity belongs to a different project."})
         
+    def problems(self):
+        """Everything still missing before this event can be submitted: [(field, label, message)], in form order.
+
+        Every field is required unless a rule below says otherwise. A field that the form hides
+        for the current answers is never required. This is the one place the rules live: the submit
+        check and the "still missing" column on the page both read it."""
+        out = []
+        has_pk = self.pk is not None
+
+        def text(v):
+            return bool((v or "").strip())
+
+        def need(ok, field, label, msg):
+            if not ok:
+                out.append((field, label, msg))
+
+        # ---- 1. Event details: time ended is not needed while the event is ongoing -----------------
+        need(text(self.event_title), "event_title", "Event title", "Enter the event title.")
+        need(self.project_id, "project", "Project", "Choose the project.")
+        # a project with no scheduled activities yet cannot be asked for one
+        if not (self.project_id and not Activity.objects.filter(project_id=self.project_id, is_active=True).exists()):
+            need(self.activity_id, "activity", "Activity", "Choose the activity.")
+        need(self.discipline_id, "discipline", "Discipline", "Choose the discipline.")
+        need(self.crew_id, "crew", "Crew / team", "Choose the crew.")
+        need(self.event_date is not None, "event_date", "Date of event", "Enter the date of the event.")
+        need(self.time_started is not None, "time_started", "Time started", "Enter the start time.")
+        if not self.is_ongoing:
+            need(self.time_ended is not None, "time_ended", "Time ended", "Enter the end time, or switch on Still happening.")
+        need(self.shift, "shift", "Shift", "Choose day or night shift.")
+        need(self.km_marker is not None, "km_marker", "Km marker", "Enter the km marker.")
+        need(has_pk and (self.crew_involved.exists() or self.others_involved.exists()),
+             "crew_involved", "People involved", "Add the people involved.")
+
+        # ---- 2. Type of event: not needed when "Other" is filled in --------------------------------
+        need(has_pk and (self.event_types.exists() or text(self.event_type_other)),
+             "event_types", "Type of event", "Tick at least one type of event.")
+
+        # ---- 3. What happened: cause is not needed when marked not known yet ------------------------
+        need(text(self.description), "description", "What happened", "Describe what happened.")
+        need(text(self.cause) or self.cause_unknown, "cause", "Cause", "Enter the cause, or switch on Cause not known yet.")
+        need(text(self.action_taken), "action_taken", "Action taken on site", "Say what was done on site.")
+
+        # ---- 4. Delay impact: No delay = nothing; Potential = only the justification; Yes = the rest -
+        if self.delay_status == DelayStatus.POTENTIAL:
+            need(text(self.potential_delay_justification), "potential_delay_justification",
+                 "Potential delay justification", "Explain why later work might be affected.")
+        elif self.delay_status == DelayStatus.YES:
+            need(self.people_stood_down is not None, "people_stood_down", "People stood down",
+                 "Enter how many people were stood down (0 if none).")
+            need(self.on_critical_path, "on_critical_path", "On critical path?", "Say whether it is on the critical path.")
+            need(self.caused_by, "caused_by", "Delay caused by", "Choose who the delay came from.")
+            need(text(self.mitigation), "mitigation", "Mitigation", "Say what was done to reduce the delay.")
+            rows = list(self.plant_delays.select_related("plant")) if has_pk else []
+            if not rows:
+                out.append(("plant_delays", "Plant & equipment delays", "Add at least one plant item that lost hours."))
+            for r in rows:
+                if r.hours_lost is None:
+                    out.append(("plant_delays", "Plant & equipment delays", f"Enter the hours lost for {r.plant.asset_id}."))
+
+        # ---- 5. Evidence: other sources switched on = no upload needed; off = at least one file ------
+        if self.other_evidence_on:
+            need(has_pk and (self.uploaded_to.exists() or text(self.uploaded_to_other)),
+                 "uploaded_to", "Evidence uploaded to", "Tick where the evidence is kept, or name it under Other.")
+            need(text(self.file_names_link), "file_names_link", "File names / link", "Add the link or the file names.")
+            need(has_pk and self.other_records.exists(), "other_records", "Other records", "Tick the other records that exist.")
+        else:
+            need(has_pk and self.attachments.exists(), "attachments", "Evidence", "Add at least one photo, video or file.")
+
+        # ---- 6. Client notification: No = only why not and when; Yes = the rest ----------------------
+        if self.client_notified == YesNo.YES:
+            need(self.notified_who_id, "notified_who", "Who was told", "Choose or add the person who was told.")
+            need(has_pk and self.notified_how.exists(), "notified_how", "How", "Tick how the client was told.")
+            need(self.notified_at is not None, "notified_at", "When was the client told?", "Enter when the client was told.")
+            need(text(self.notification_reference), "notification_reference", "Email subject / Aconex No.", "Enter the email subject or Aconex number.")
+            need(text(self.client_response), "client_response", "Client response", "Record the client's response or direction.")
+            need(self.direction_confirmed, "direction_confirmed", "Confirmed in writing?", "Say whether the direction was confirmed in writing.")
+            if self.direction_confirmed == DirectionConfirmed.YES:
+                need(text(self.direction_confirmed_ref), "direction_confirmed_ref", "Written confirmation reference",
+                     "Enter the reference of the written confirmation.")
+        else:
+            need(text(self.not_notified_reason), "not_notified_reason", "Why not told", "Say why the client has not been told.")
+            need(self.will_notify_when is not None, "will_notify_when", "When will they be told", "Enter when the client will be told.")
+        return out
+
     def completeness_errors(self):
-        """What is still missing before the event can be submitted. {field: [messages]}"""
-        e = {}
-        req = "This field is required."
-        for f in ("event_date", "time_started", "event_title", "shift", "description"):
-            if not getattr(self, f):
-                e[f] = [req]
-        if not self.is_ongoing and not self.time_ended:
-            e["time_ended"] = ["Enter the end time or tick Ongoing."]
-        if self.pk and not self.event_types.exists():
-            e["event_types"] = ["Tick at least one type of event."]
-        if self.delay_status == DelayStatus.YES and self.photos != YesNo.YES and self.video != YesNo.YES:
-            e["photos"] = ["Photos or video are required when there is a delay."]
-        if self.client_notified == YesNo.NO and not self.not_notified_reason:
-            e["not_notified_reason"] = ["Say why the client has not been notified."]
-        if not self.is_ongoing and not self.time_ended:
-            e["time_ended"] = ["End time is required unless the event is ongoing."]
-        return e
+        """{field: [messages]} - what submit() checks."""
+        errors = {}
+        for field, _label, msg in self.problems():
+            errors.setdefault(field, []).append(msg)
+        return errors
 
     def save(self, *args, user=None, request=None, **kwargs):
         adding = self._state.adding
@@ -666,9 +785,18 @@ class Event(LoggedModel):
         self.submitted_by = user
         self.save(user=user, request=request, action=EventLog.Action.SUBMITTED)
 
-    def mark_reviewed(self, user, request=None):
-        self.status = self.Status.REVIEWED
-        self.save(user=user, request=request, action=EventLog.Action.REVIEWED)
+    def mark_processed(self, user, request=None):
+        """Construction Manager accepts the report and carries on with the process."""
+        self.status = self.Status.PROCESSED
+        self.save(user=user, request=request, action=EventLog.Action.PROCESSED)
+
+    mark_reviewed = mark_processed      # the old name, in case other code still calls it
+
+    def soft_delete(self, user, request=None):
+        from django.utils import timezone
+        self.deleted_at = timezone.now()
+        self.deleted_by = user
+        self.save(user=user, request=request, action=EventLog.Action.DELETED)
 
 
 # ==========================================================================
@@ -716,7 +844,10 @@ class EventLog(models.Model):
         SUBMITTED = "submitted", "Submitted"
         OPENED = "opened", "Opened"
         EDITED = "edited", "Edited"
-        REVIEWED = "reviewed", "Reviewed by CM"
+        REVIEWED = "reviewed", "Reviewed by CM"          # old rows only: new ones use PROCESSED
+        PROCESSED = "processed", "Processed"
+        RETURNED = "returned", "Returned to reporter"
+        DELETED = "deleted", "Draft deleted"
 
     class Scope(models.TextChoices):
         EVENT = "event", "Event (sections 1-6)"
@@ -778,3 +909,200 @@ class EventPlantDelay(AuditModel):
 
     def __str__(self):
         return f"{self.plant} - {self.hours_lost or 0} hrs lost"
+
+class EventAttachment(AuditModel):
+    """Stores metadata and Cloudinary references for files attached to events, projects, or activities."""
+    
+    event = models.ForeignKey(
+        "Event", null=True, blank=True, on_delete=models.SET_NULL, related_name="attachments",
+        help_text="Related event report, if applicable."
+    )
+    project = models.ForeignKey(
+        "Project", null=True, blank=True, on_delete=models.SET_NULL, related_name="attachments",
+        help_text="Related project."
+    )
+    activity = models.ForeignKey(
+        "Activity", null=True, blank=True, on_delete=models.SET_NULL, related_name="attachments",
+        help_text="Related programme activity."
+    )
+    
+    # Naming & User Rename
+    name = models.CharField(
+        "Display Name", max_length=255, blank=True,
+        help_text="User-friendly name or custom rename (random at creation)."
+    )
+    original_filename = models.CharField(max_length=255, blank=True, help_text="Original name of the uploaded file.")
+    
+    # Cloudinary storage details
+    public_id = models.CharField(max_length=255, unique=True, help_text="Cloudinary public ID.")
+    secure_url = models.URLField(max_length=500, help_text="Cloudinary secure HTTPS URL.")
+    resource_type = models.CharField(max_length=50, blank=True, help_text="File type (image, video, raw, etc.).")
+    format = models.CharField(max_length=50, blank=True, help_text="File extension / format.")
+    file_size = models.PositiveIntegerField(null=True, blank=True, help_text="File size in bytes.")
+    
+    # Comments & Notes
+    comment = models.TextField(blank=True, help_text="User comments or notes regarding this file.")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Event Attachment"
+        verbose_name_plural = "Event Attachments"
+
+    def __str__(self):
+        return self.name or self.original_filename or self.public_id
+
+
+# ==========================================================================
+# Dayworks rates and the Construction Manager's cost estimate (step 7)
+# ==========================================================================
+ZERO = Decimal("0")
+CENT = Decimal("0.01")
+
+
+def money(value):
+    """Round to cents, half up (what people expect from a calculator)."""
+    return Decimal(value).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+class RateCategory(models.TextChoices):
+    LABOUR = "labour", "Labour"
+    PLANT = "plant", "Construction plant"
+    MATERIAL = "material", "Materials & preliminaries"
+
+
+class RateType(models.TextChoices):
+    WORKING = "working", "Working"
+    STANDBY = "standby", "Standby"
+
+
+class RateItem(models.Model):
+    """One line of the dayworks rate schedule. Edit rates here (Django admin), not in code.
+
+    Labour and plant have a fixed Working and Standby rate. Materials & preliminaries have no fixed
+    rate: the Construction Manager enters the contractor's unit cost and the markup is added."""
+    category = models.CharField(max_length=10, choices=RateCategory.choices, db_index=True)
+    item_no = models.CharField("Schedule item", max_length=12, blank=True)
+    description = models.CharField(max_length=200)
+    uom = models.CharField("Unit", max_length=30, help_text="Hr, Day, Each, per person, Lump sum")
+    working_rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    standby_rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    is_active = models.BooleanField(default=True, help_text="Untick to stop offering it. Existing estimates keep their lines.")
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["category", "sort_order", "item_no", "pk"]
+        constraints = [models.UniqueConstraint(fields=["category", "description"], name="uniq_rate_per_category")]
+
+    def __str__(self):
+        return f"{self.item_no} {self.description}".strip()
+
+    @property
+    def is_material(self):
+        return self.category == RateCategory.MATERIAL
+
+    def rate_for(self, rate_type):
+        """The $/unit for 'working' or 'standby' (labour and plant)."""
+        value = self.standby_rate if rate_type == RateType.STANDBY else self.working_rate
+        return value if value is not None else ZERO
+
+
+class DaysworkSettings(models.Model):
+    """The few numbers that apply to every estimate. One row only."""
+    materials_markup_pct = models.DecimalField("Materials markup %", max_digits=5, decimal_places=2, default=Decimal("10"),
+                                               help_text="Materials, airfares, accommodation, induction: contractor cost plus this %.")
+    gst_pct = models.DecimalField("GST %", max_digits=5, decimal_places=2, default=Decimal("10"))
+    contract_lump_sum = models.DecimalField("Base contract lump sum", max_digits=14, decimal_places=2, null=True, blank=True,
+                                            help_text="Only used to show the estimate as a % of the base contract.")
+    schedule_ref = models.CharField(max_length=200, blank=True,
+                                    default="Attachment 2 - Pricing Schedule (Dayworks Rates), SOW-121-R-00015/1")
+
+    class Meta:
+        verbose_name = "Dayworks settings"
+        verbose_name_plural = "Dayworks settings"
+
+    def __str__(self):
+        return "Dayworks settings"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1                       # a single row
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls):
+        obj, _ = cls.objects.get_or_create(pk=1, defaults={"contract_lump_sum": Decimal("3966876.00")})
+        return obj
+
+
+class EventCostEstimate(models.Model):
+    """The Construction Manager's cost estimate for one event. The totals are worked out on the server each time
+    it is saved; the page shows the same sums as you type."""
+    event = models.OneToOneField("Event", on_delete=models.PROTECT, related_name="cost_data")
+    no_cost_impact = models.BooleanField(default=False, help_text="No people, plant or materials to price.")
+    apply_gst = models.BooleanField(default=True)
+    markup_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("10"))
+    gst_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("10"))
+    subtotal_labour = models.DecimalField(max_digits=14, decimal_places=2, default=ZERO)
+    subtotal_plant = models.DecimalField(max_digits=14, decimal_places=2, default=ZERO)
+    subtotal_material = models.DecimalField(max_digits=14, decimal_places=2, default=ZERO)
+    total_ex_gst = models.DecimalField(max_digits=14, decimal_places=2, default=ZERO)
+    gst_amount = models.DecimalField(max_digits=14, decimal_places=2, default=ZERO)
+    total_inc_gst = models.DecimalField(max_digits=14, decimal_places=2, default=ZERO)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    def __str__(self):
+        return f"Cost estimate - {self.event}"
+
+    def recalculate(self):
+        """Add up the lines. Cents are rounded once, at the end, like the workbook."""
+        sums = {RateCategory.LABOUR: ZERO, RateCategory.PLANT: ZERO, RateCategory.MATERIAL: ZERO}
+        for line in self.lines.all():
+            sums[line.category] = sums.get(line.category, ZERO) + line.line_total
+        self.subtotal_labour = money(sums[RateCategory.LABOUR])
+        self.subtotal_plant = money(sums[RateCategory.PLANT])
+        self.subtotal_material = money(sums[RateCategory.MATERIAL])
+        ex = sum(sums.values(), ZERO)
+        gst = ex * self.gst_pct / 100 if self.apply_gst else ZERO
+        self.total_ex_gst = money(ex)
+        self.gst_amount = money(gst)
+        # Same as the dayworks workbook: nothing is rounded until it is shown, so the total is the rounded
+        # exact sum. (Now and then it differs by 1 cent from the two rounded figures added up.)
+        self.total_inc_gst = money(ex + gst)
+        return self
+
+
+class EventCostLine(models.Model):
+    """One priced line. The description and rate are copied from the schedule when the line is saved."""
+    estimate = models.ForeignKey(EventCostEstimate, on_delete=models.CASCADE, related_name="lines")
+    rate_item = models.ForeignKey(RateItem, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    category = models.CharField(max_length=10, choices=RateCategory.choices)
+    item_no = models.CharField(max_length=12, blank=True)
+    description = models.CharField(max_length=200)
+    uom = models.CharField(max_length=30)
+    rate_type = models.CharField(max_length=8, choices=RateType.choices, blank=True, help_text="Labour and plant only.")
+    unit_rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
+                                    help_text="$ per unit: the Working or Standby rate, or the contractor's unit cost for materials.")
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    markup_pct = models.DecimalField(max_digits=5, decimal_places=2, default=ZERO, help_text="Materials only.")
+    line_total = models.DecimalField(max_digits=16, decimal_places=4, default=ZERO)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+
+    def __str__(self):
+        return f"{self.description} x {self.quantity}"
+
+    @staticmethod
+    def work_out(category, unit_rate, quantity, markup_pct):
+        """The one formula: quantity x rate; materials add the markup."""
+        total = (unit_rate or ZERO) * (quantity or ZERO)
+        if category == RateCategory.MATERIAL:
+            total = total * (1 + (markup_pct or ZERO) / 100)
+        return total
+
+    def save(self, *args, **kwargs):
+        self.line_total = self.work_out(self.category, self.unit_rate, self.quantity, self.markup_pct)
+        super().save(*args, **kwargs)

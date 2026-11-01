@@ -3,7 +3,7 @@ completeness is checked on submit (Event.completeness_errors)."""
 from django import forms
 from django.db.models import Q
 from django.forms import inlineformset_factory
-from .models import ContractImpact, Event, Staff, Plant, Project, Activity, Discipline, Crew , OutsideStaff, EventPlantDelay
+from .models import ContractImpact, Event, Staff, Plant, Project, Activity, Discipline, Crew , OutsideStaff, EventPlantDelay, YesNo
 
 STEPS = [
     (1, "Event details"),
@@ -111,7 +111,7 @@ class Step1Form(StepForm):
             "time_started": forms.TimeInput(format="%H:%M", attrs={"data-time": "", "data-no-autofill": ""}),
             "time_ended": forms.TimeInput(format="%H:%M", attrs={"data-time": "", "data-no-autofill": ""}),
             "shift": forms.RadioSelect,
-            "km_marker": forms.NumberInput(attrs={"step": "0.01", "placeholder": "e.g. 142.5"}),
+            "km_marker": forms.NumberInput(attrs={"step": "1", "placeholder": "e.g. 142.5"}),
         }
         labels = {"is_ongoing": "Ongoing?", "crew": "Crew / team", "crew_involved": "People involved"}
 
@@ -374,6 +374,16 @@ class Step2Form(StepForm):
             g["safety"] = any(i["hse"] for i in g["items"])
         return out
 
+    def clean(self):
+        data = super().clean()
+        types = data.get("event_types")
+        if types is not None:
+            is_other = lambda o: o.code == "other" or str(o.label).strip().lower().startswith("other")
+            if not any(is_other(o) for o in types):
+                data["event_type_other"] = ""        # the box is hidden: do not keep (or count) old text
+        return data
+
+
 class Step3Form(StepForm):
     tips = {
         "description": "Write what you saw, not what you think: what happened, where (area or km marker), who was involved and the order things happened in. Leave out opinions and blame.",
@@ -442,42 +452,132 @@ EventPlantDelayFormSet = inlineformset_factory(
     widgets={
         "plant": forms.HiddenInput(attrs={"class": "plant-id"}),
         "hours_lost": forms.NumberInput(attrs={
-            "class": "form-control plant-hours", "step": "0.1", "min": "0",
-            "inputmode": "decimal", "placeholder": "Hours",
+            "class": "form-control plant-hours", "step": "1", "min": "0",
+            "inputmode": "numeric", "placeholder": "Hours",
         }),
     },
 )
 
 
 class Step5Form(StepForm):
+    """Evidence. Files are uploaded from the page (Cloudinary, through the attachment views).
+    photos / photo_count / video / video_count are filled in by the page from those uploads,
+    so they are hidden fields; completeness_errors() keeps working as before."""
+    tips = {
+        "uploaded_to": "Tick where any other copies of the evidence are kept, if they are not uploaded here.",
+        "uploaded_to_other": "Name the other place where the evidence is kept.",
+        "file_names_link": "Paste a link, or list the file names, for evidence that is stored somewhere else.",
+        "other_records": "Tick any other records that exist for this event.",
+    }
+
     class Meta:
         model = Event
-        fields = ["photos", "photo_count", "video", "video_count", "uploaded_to", "uploaded_to_other",
+        fields = ["photos", "photo_count", "video", "video_count", "other_evidence", "uploaded_to", "uploaded_to_other",
                   "file_names_link", "other_records"]
         widgets = {
-            "photos": forms.RadioSelect,
-            "video": forms.RadioSelect,
+            "photos": forms.HiddenInput,
+            "photo_count": forms.HiddenInput,
+            "video": forms.HiddenInput,
+            "video_count": forms.HiddenInput,
             "uploaded_to": forms.CheckboxSelectMultiple,
             "other_records": forms.CheckboxSelectMultiple,
-            "file_names_link": forms.Textarea(attrs={"rows": 2}),
+            "file_names_link": forms.Textarea(attrs={"rows": 2, "placeholder": "Link or file names (optional)"}),
         }
 
 
 class Step6Form(StepForm):
+    """Client notification.
+    Yes -> who / how / when / reference / client response / written confirmation.
+    No  -> only why not, and when the client will be told.
+    Whatever belongs to the other answer is cleared on save, so a record never holds both."""
+    tips = {
+        "client_notified": "Yes if the client has already been told about this event. If not, you only need to say why and when they will be told.",
+        "notified_who": "The client person who was told. Pick from the list, or type a new name and press Enter to add them.",
+        "notified_how": "How the client was told. Tick every way that applies.",
+        "notified_at": "When the client was told. Switch on Now if it has just happened, or pick the date and time.",
+        "notification_reference": "The email subject or Aconex number, so the notice can be found again later.",
+        "client_response": "What the client said or directed, in their own words.",
+        "direction_confirmed": "A verbal direction must be confirmed in writing. Yes: it has been, so give the reference. No: the Construction Manager still has to confirm it. N/A: the client gave no direction.",
+        "direction_confirmed_ref": "The email subject or Aconex number of the written confirmation.",
+        "not_notified_reason": "Why the client has not been told yet, for example: waiting for the supervisor, or the cause is still being checked.",
+        "will_notify_when": "The date and time you plan to tell the client.",
+    }
+
+    # Pick an outside person from the list, or type a new name: it is added to OutsideStaff on save.
+    notified_who = FlexibleChoiceField(
+        required=False,
+        label="Who was told",
+        widget=forms.Select(attrs={"data-ts": "", "data-ts-create": "true"}),
+    )
+
     class Meta:
         model = Event
-        fields = ["client_notified", "notified_who", "notified_bhp_role", "notified_how", "notified_at",
+        fields = ["client_notified", "notified_who", "notified_how", "notified_at",
                   "notification_reference", "not_notified_reason", "will_notify_when", "client_response",
                   "direction_confirmed", "direction_confirmed_ref"]
+        labels = {
+            "client_notified": "Has the client been told?",
+            "notified_at": "When was the client told?",
+            "not_notified_reason": "Why has the client not been told?",
+            "will_notify_when": "When will the client be told?",
+            "client_response": "Client response or direction",
+            "direction_confirmed": "Confirmed in writing?",
+            "direction_confirmed_ref": "Written confirmation reference",
+        }
         widgets = {
             "client_notified": forms.RadioSelect,
             "direction_confirmed": forms.RadioSelect,
             "notified_how": forms.CheckboxSelectMultiple,
             "notified_at": forms.DateTimeInput(format="%Y-%m-%d %H:%M", attrs={"data-datetime": ""}),
             "will_notify_when": forms.DateTimeInput(format="%Y-%m-%d %H:%M", attrs={"data-datetime": ""}),
-            "not_notified_reason": forms.Textarea(attrs={"rows": 2}),
-            "client_response": forms.Textarea(attrs={"rows": 3}),
+            "notification_reference": forms.TextInput(attrs={"placeholder": "e.g. email subject or Aconex number"}),
+            "not_notified_reason": forms.Textarea(attrs={
+                "rows": 2,
+                "placeholder": "Example: Waiting for the supervisor to confirm what happened.",
+            }),
+            "client_response": forms.Textarea(attrs={
+                "rows": 3,
+                "placeholder": "Only what the client said or directed. Example: Asked us to stop work in the area until further notice.",
+            }),
+            "direction_confirmed_ref": forms.TextInput(attrs={"placeholder": "e.g. email subject or Aconex number"}),
         }
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        who = self.fields["notified_who"]
+        who.widget.attrs["placeholder"] = "Select, or type a new name..."   # StepForm resets it to "Select..."
+        people = OutsideStaff.objects.filter(is_active=True).select_related("company")
+        choices = [("", "")] + [(str(p.pk), str(p)) for p in people]
+        if self.instance.notified_who_id:                       # keep the saved person even if now inactive
+            cur = self.instance.notified_who
+            if str(cur.pk) not in [c[0] for c in choices]:
+                choices.append((str(cur.pk), str(cur)))
+        who.choices = choices
+
+    @staticmethod
+    def _person(val):
+        """A number is an existing OutsideStaff id; any other text is a new name (reused if it already exists)."""
+        val = str(val or "").strip()
+        if not val:
+            return None
+        if val.isdigit():
+            return OutsideStaff.objects.filter(pk=int(val)).first()
+        return (OutsideStaff.objects.filter(name__iexact=val).first()
+                or OutsideStaff.objects.create(name=val[:160]))
+
+    def clean(self):
+        data = super().clean()
+        if data.get("client_notified") == YesNo.YES:
+            data["notified_who"] = self._person(data.get("notified_who"))
+            data["not_notified_reason"] = ""
+            data["will_notify_when"] = None
+        else:   # No: only the reason and the new date are kept
+            data.update(
+                notified_who=None, notified_at=None, notification_reference="",
+                client_response="", direction_confirmed="", direction_confirmed_ref="",
+                notified_how=self.fields["notified_how"].queryset.none(),
+            )
+        return data
 
 
 class Step7Form(StepForm):
@@ -495,6 +595,8 @@ class Step7Form(StepForm):
 
 STEP_FORMS = {1: Step1Form, 2: Step2Form, 3: Step3Form, 4: Step4Form, 5: Step5Form, 6: Step6Form, 7: Step7Form}
 STEP_FIELDS = {n: list(f._meta.fields) for n, f in STEP_FORMS.items()}
+STEP_FIELDS[4].append("plant_delays")   # the plant list (a formset, not a form field)
+STEP_FIELDS[5].append("attachments")    # the uploaded files (saved by the upload views)
 
 
 def m2m_names(form):

@@ -36,28 +36,85 @@
     </div>
   </header>
 
-  <!-- Navigation (a link shows only once its URL name exists) -->
-  {% url 'home' as url_home %}{% url 'event_list' as url_list %}{% url 'event_create' as url_new %}{% url 'dashboard' as url_dash %}{% url 'logout' as url_logout %}
+<!-- Navigation -->
+  {% url 'home' as url_home %}{% url 'event_list' as url_list %}{% url 'event_create' as url_new %}{% url 'manager_dashboard' as url_dash %}{% url 'logout' as url_logout %}
   {% if user.is_authenticated %}
-  <nav class="navbar navbar-expand-md navbar-dark wpu-nav">
+  <nav class="navbar navbar-expand-md navbar-dark wpu-nav py-2">
     <div class="container-xl">
       <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Menu">
         <span class="navbar-toggler-icon"></span>
       </button>
-      <div class="collapse navbar-collapse" id="mainNav">
-        <ul class="navbar-nav me-auto">
-          {% if url_home %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}" href="{{ url_home }}"><i class="bi bi-house"></i> Home</a></li>{% endif %}
-          {% if url_list %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'event_list' %}active{% endif %}" href="{{ url_list }}"><i class="bi bi-list-ul"></i> Events</a></li>{% endif %}
-          {% if url_new %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'event_create' %}active{% endif %}" href="{{ url_new }}"><i class="bi bi-plus-circle"></i> New event</a></li>{% endif %}
-          {% if url_dash and user.can_see_contract %}<li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{{ url_dash }}"><i class="bi bi-bar-chart"></i> Dashboard</a></li>{% endif %}
-          {% if user.is_staff %}<li class="nav-item"><a class="nav-link" href="/admin/"><i class="bi bi-gear"></i> Admin</a></li>{% endif %}
-        </ul>
-        <div class="d-flex align-items-center gap-3 text-white-50 small">
-          <span><i class="bi bi-person-circle"></i> {{ user.get_full_name|default:user.username }} {% if user.company_name %}<span class="badge text-bg-secondary">{{ user.company_name }}</span>{% endif %}</span>
-          {% if url_logout %}
-          <form method="post" action="{{ url_logout }}" class="m-0">{% csrf_token %}<button class="btn btn-sm btn-outline-light" type="submit"><i class="bi bi-box-arrow-right"></i> Log out</button></form>
+      <div class="collapse navbar-collapse justify-content-between align-items-center" id="mainNav">
+        
+        <!-- Left Nav Links -->
+        <ul class="navbar-nav align-items-md-center gap-1 gap-md-2 me-auto mb-2 mb-md-0">
+          {% if url_home %}
+          <li class="nav-item">
+            <a class="nav-link px-2 {% if request.resolver_match.url_name == 'home' %}active{% endif %}" href="{{ url_home }}">
+              <i class="bi bi-house"></i> Home
+            </a>
+          </li>
           {% endif %}
-        </div>
+          
+          {% if url_list %}
+          <li class="nav-item">
+            <a class="nav-link px-2 {% if request.resolver_match.url_name == 'event_list' %}active{% endif %}" href="{{ url_list }}">
+              <i class="bi bi-list-ul"></i> Events
+            </a>
+          </li>
+          {% endif %}
+          
+          {% if url_new %}
+          <li class="nav-item">
+            <a class="nav-link px-2 {% if request.resolver_match.url_name == 'event_create' %}active{% endif %}" href="{{ url_new }}">
+              <i class="bi bi-plus-circle"></i> New event
+            </a>
+          </li>
+          {% endif %}
+
+          <!-- Manager Dashboard Link (Styled prominently for managers only) -->
+          {% if url_dash and user.is_manager %}
+          <li class="nav-item ms-md-2">
+            <a class="nav-link px-3 py-1 rounded bg-danger bg-opacity-10 border border-danger border-opacity-50 text-white {% if request.resolver_match.url_name == 'manager_dashboard' %}active{% endif %}" href="{{ url_dash }}">
+              <i class="bi bi-speedometer2 text-warning"></i> Manager Dashboard
+            </a>
+          </li>
+          {% endif %}
+
+          {% if user.is_staff %}
+          <li class="nav-item">
+            <a class="nav-link px-2" href="/admin/">
+              <i class="bi bi-gear"></i> Admin
+            </a>
+          </li>
+          {% endif %}
+        </ul>
+
+<!-- Right User Info & Logout Section -->
+<div class="d-flex align-items-center text-white-50 small pt-2 pt-md-0 border-top border-secondary border-opacity-25 border-top-md-0">
+
+  <span class="d-inline-block text-white text-truncate align-middle mr-3"
+        style="max-width: 180px; min-width: 0;"
+        title="{{ user.get_full_name|default:user.username }}">
+    <i class="bi bi-person-circle text-danger"></i>
+    {{ user.get_full_name|default:user.username }}
+
+    {% if user.company_name %}
+      <span class="badge badge-secondary ml-1">{{ user.company_name }}</span>
+    {% endif %}
+  </span>
+
+  {% if url_logout %}
+  <form method="post" action="{{ url_logout }}" class="m-0 flex-shrink-0">
+    {% csrf_token %}
+    <button class="btn btn-sm btn-outline-light text-nowrap" type="submit">
+      <i class="bi bi-box-arrow-right"></i> Log out
+    </button>
+  </form>
+  {% endif %}
+
+</div>
+
       </div>
     </div>
   </nav>
@@ -66,7 +123,7 @@
   <!-- Django messages -> SweetAlert2 toasts -->
   {% if messages %}<div id="dj-messages" hidden>{% for m in messages %}<span data-level="{{ m.level_tag }}">{{ m }}</span>{% endfor %}</div>{% endif %}
 
-  <main class="container-xl py-3">
+  <main class="container-xxl py-3">
     {% block content %}{% endblock %}
   </main>
 

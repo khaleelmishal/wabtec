@@ -1,0 +1,89 @@
+{% extends "events/event_layout.html" %}
+{% load static %}
+
+{% block title %}Manager Dashboard{% endblock %}
+
+{% block head_title %}MANAGER TECHNICAL DASHBOARD{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+  
+  <!-- Section 1: Filler Technical Telemetry Data -->
+  <section class="sec mb-4">
+    <h2 class="sec-title"><span class="num">1</span>Plant & System Technical Metrics <span class="small fw-normal ms-2">(Real-time Telemetry Overview)</span></h2>
+    <div class="sec-body bg-white p-3">
+      <div class="row g-3 text-center">
+        <div class="col-md-3">
+          <div class="p-3 border rounded bg-light">
+            <span class="text-muted small text-uppercase fw-bold">Active Plant Assets</span>
+            <h3 class="mt-2 mb-0 text-dark fw-bold">{{ tech_metrics.total_plant_assets }}</h3>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="p-3 border rounded bg-light">
+            <span class="text-muted small text-uppercase fw-bold">Submitted Events Queue</span>
+            <h3 class="mt-2 mb-0 text-danger fw-bold">{{ tech_metrics.pending_review_count }}</h3>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="p-3 border rounded bg-light">
+            <span class="text-muted small text-uppercase fw-bold">Mill Line Uptime</span>
+            <h3 class="mt-2 mb-0 text-success fw-bold">{{ tech_metrics.system_uptime_pct }}%</h3>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="p-3 border rounded bg-light">
+            <span class="text-muted small text-uppercase fw-bold">Active Delay Incidents</span>
+            <h3 class="mt-2 mb-0 text-warning fw-bold">{{ tech_metrics.open_delays_count }}</h3>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 2: Functional List of Events with Status = Submitted -->
+  <section class="sec">
+    <h2 class="sec-title"><span class="num">2</span>Submitted Events Awaiting Review <span class="small fw-normal ms-2">(Filtered by Status: Submitted)</span></h2>
+    <div class="sec-body bg-white p-3">
+      <div class="table-responsive">
+        <table class="table dt table-hover align-middle mb-0" style="width:100%">
+          <thead>
+            <tr>
+              <th>Event No.</th>
+              <th>Title / Description</th>
+              <th>Project / Discipline</th>
+              <th>Reported By</th>
+              <th>Date Reported</th>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ev in submitted_events %}
+            <tr>
+              <td><strong>{{ ev.event_no }}</strong></td>
+              <td>{{ ev.event_title|default:ev.description|truncatechars:50 }}</td>
+              <td>
+                <div>{{ ev.project.code|default:"-" }}</div>
+                <small class="text-muted">{{ ev.discipline.name|default:"" }}</small>
+              </td>
+              <td>{{ ev.reported_by.get_full_name|default:ev.reported_by.username }}</td>
+              <td>{{ ev.reported_at|date:"d M Y H:i" }}</td>
+              <td class="text-end">
+                <a href="{% url 'event_edit' ev.pk %}" class="btn btn-sm btn-outline-primary">
+                  <i class="bi bi-eye"></i> Review
+                </a>
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6" class="text-center py-4 text-muted">No events currently have a <strong>submitted</strong> status.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}

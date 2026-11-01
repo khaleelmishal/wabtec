@@ -6,7 +6,7 @@
 
 {% block content %}
 <div class="row g-3">
-  <aside class="col-lg-3 no-print">
+  <aside class="col-lg-2 no-print" style="margin-left: 1.5rem;">
     <button class="btn btn-outline-secondary w-100 d-lg-none mb-2" type="button" data-bs-toggle="collapse" data-bs-target="#myReports" aria-expanded="false">
       <i class="bi bi-folder2-open"></i> My reports ({{ n_all }})
     </button>
@@ -14,7 +14,7 @@
       {% include "events/_sidebar.html" %}
     </div>
   </aside>
-  <section class="col-lg-9">
+  <section class="col-lg-7">
     {% block pane %}{% endblock %}
   </section>
 </div>

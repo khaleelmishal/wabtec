@@ -14,14 +14,15 @@ import re
 import secrets
 from collections import Counter
 from datetime import datetime
+from decimal import Decimal
 
 import openpyxl
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils.text import slugify
 
-from core.models import Company, Staff, Plant, Project, Activity, Discipline, Crew, Option, ContractImpact, Event
-
+from core.models import (Company, Staff, Plant, Project, Activity, Discipline, Crew, Option, ContractImpact, Event,
+                         DaysworkSettings, RateCategory, RateItem)
 COMPANY_ALIASES = {}
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PW_CHARS = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -86,6 +87,52 @@ def read_table(rows, first_header):
     return []
 
 
+# (schedule item, description, unit, working $, standby $)   -- Labour, $/hr
+LABOUR = [
+    ("1.3", "Senior Project Manager", "Hr", 279, 279),
+    ("1.4", "Project Manager", "Hr", 250, 250),
+    ("1.5", "Project Admin", "Hr", 145, 145),
+    ("1.6", "Planner / P6 Specialist", "Hr", 160, 160),
+    ("1.7", "Project Engineer", "Hr", 175, 175),
+    ("1.8", "Engineering Manager", "Hr", 279, 279),
+    ("1.9", "Principle Engineer", "Hr", 232, 232),
+    ("2.0", "Senior Engineer", "Hr", 196, 196),
+    ("2.1", "Engineer", "Hr", 153, 153),
+    ("2.2", "Tester in Charge", "Hr", 345, 345),
+    ("2.3", "Electrical/Communications Supervisor", "Hr", 191, 191),
+    ("2.4", "Civil Supervisor", "Hr", 191, 191),
+    ("2.5", "Electrician", "Hr", 185, 185),
+    ("2.6", "Civil Operator / Logistics", "Hr", 140, 140),
+    ("2.7", "Cert 4 Signal Electrician/Tester (Sigtech)", "Hr", 249, 249),
+    ("2.8", "TPO", "Hr", 195, 195),
+    ("2.9", "Construction Manager", "Hr", 250, 250),
+    ("3.0", "HSE Manager", "Hr", 185, 185),
+    ("3.1", "Safework Manager", "Hr", 230, 230),
+]
+# Construction plant, $/hr or $/day
+PLANT = [
+    ("3.2", "Facility", "Day", 420, 420),
+    ("3.3", "Electrical Tool Trailer", "Hr", 16, 16),
+    ("3.4", "Civil Tool Trailer", "Hr", 18, 18),
+    ("3.5", "Water Trailer (1500LTR)", "Hr", 59, 59),
+    ("3.6", "Vac Truck", "Hr", 80, 80),
+    ("3.7", "8Ton Excavator", "Hr", 59, 59),
+    ("3.8", "Bobcat/Skidsteer", "Hr", 59, 59),
+    ("3.9", "Truck / Hiab (Delivery and Pick up of Plant)", "Hr", 85, 85),
+    ("3.10", "DPU01 Plate Compactor", "Hr", 11, 11),     # the workbook shows 3.1 (a cell format lost the zero)
+    ("3.11", "JJ01 Jumping Jack", "Hr", 11, 11),
+    ("3.12", "Tipper/Tag", "Hr", 59, 59),
+]
+# Materials & preliminaries: contractor cost + markup (no fixed rate)
+MATERIAL = [
+    ("4.1", "Additional Materials for scoped works", "Lump sum"),
+    ("5.1", "Return airfares (Perth to Port Hedland)", "Each"),
+    ("5.2", "Return airfares (Eastern States)", "Each"),
+    ("5.3", "Port Hedland Accommodation", "Day"),
+    ("5.4", "Induction and training for additional labour resources", "per person"),
+]
+
+
 class Command(BaseCommand):
     help = "Import reference data, staff, companies, Plants, Projects, and Activities safely."
 
@@ -109,6 +156,7 @@ class Command(BaseCommand):
             self.seed_options()
             self.seed_disciplines_and_crews()
             self.seed_projects_and_activities()
+            self.seed_dayworks_rates()
 
             if wb:
                 if "INPUT - Roster" in wb.sheetnames:
@@ -119,6 +167,27 @@ class Command(BaseCommand):
             if o["dry_run"]:
                 transaction.set_rollback(True)
                 self.stdout.write(self.style.WARNING("Dry run: nothing was saved."))
+
+    def seed_dayworks_rates(self, user=None):
+        """Dayworks rate schedule (labour, plant, materials) and the markup / GST settings.
+        Adds what is missing and never overwrites a rate that was edited in the admin."""
+        made = 0
+
+        def put(category, order, no, desc, uom, working=None, standby=None):
+            _, created = RateItem.objects.get_or_create(category=category, description=desc, defaults={
+                "item_no": no, "uom": uom, "sort_order": order,
+                "working_rate": None if working is None else Decimal(working),
+                "standby_rate": None if standby is None else Decimal(standby)})
+            return int(created)
+
+        for i, row in enumerate(LABOUR, 1):
+            made += put(RateCategory.LABOUR, i, *row)
+        for i, row in enumerate(PLANT, 1):
+            made += put(RateCategory.PLANT, i, *row)
+        for i, (no, desc, uom) in enumerate(MATERIAL, 1):
+            made += put(RateCategory.MATERIAL, i, no, desc, uom)
+        DaysworkSettings.get()
+        self.stdout.write(self.style.SUCCESS(f"Dayworks rates: {made} added, {RateItem.objects.count()} in total."))
 
     def seed_options(self, user=None):
         """Safely seed default option lists."""

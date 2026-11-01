@@ -3,17 +3,114 @@
 {% block title %}{% if event %}{{ event.event_no }}{% else %}New event{% endif %}{% endblock %}
 
 {% block pane %}
-<div id="evform">
+<style>
+  /* "before you submit" card. From 1200px up it floats in the empty space under the report list on the left, so the
+     form keeps its full width. Below that it sits above the form (nothing floats over a phone screen). */
+  .ev-cols { display: flex; flex-direction: column; }
+  .ev-check { display: flex; flex-direction: column; order: -1; margin-bottom: 1rem; max-height: 45vh; }
+  .ev-check-scroll { overflow-y: auto; padding: .75rem; }
+  .ev-check.is-min .ev-check-scroll { display: none; }
+  .ev-check.is-min .ev-check-chev { transform: rotate(180deg); }
+  .ev-check-head:focus-visible { outline: 2px solid var(--bs-primary, #0d6efd); outline-offset: -2px; }
+  @media (min-width: 1200px) {
+    .ev-check { position: fixed; z-index: 1025; right: 1rem; bottom: 1rem; width: 17.5rem; margin: 0; max-height: min(60vh, 30rem); }
+  }
+  .ts-dropdown.plant-picker-up {
+  transform: translateY(calc(-100% - 4px));
+}
+  .ev-check-group { margin-bottom: .75rem; }
+  .ev-check-gh { display: flex; align-items: center; gap: .5rem; font-weight: 600; font-size: .85rem; margin-bottom: .25rem; }
+  .ev-check-gh .n { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--bs-secondary-bg, #e9ecef); font-size: .75rem; }
+  .ev-check-item { display: flex; gap: .5rem; align-items: flex-start; width: 100%; max-height: 6rem; overflow: hidden; text-align: left; background: none; color: inherit;
+                   border: 0; border-left: 3px solid var(--bs-danger, #dc3545); border-radius: .25rem; padding: .35rem .5rem; margin: .15rem 0; font-size: .9rem;
+                   transition: opacity .35s, max-height .35s, padding .35s, margin .35s, background-color .2s; }
+  .ev-check-item:hover { background: var(--bs-secondary-bg, #f1f3f5); }
+  .ev-check-item .bi { margin-top: .15rem; color: var(--bs-danger, #dc3545); }
+  .ev-check-item.is-done { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; border-left-color: var(--bs-success, #198754); pointer-events: none; }
+  .ev-check-ok { display: flex; gap: .5rem; align-items: flex-start; color: var(--bs-success, #198754); font-weight: 600; }
+  .ev-flash { animation: evflash 1.6s ease; border-radius: .5rem; }
+  @keyframes evflash { 0%, 60% { box-shadow: 0 0 0 3px rgba(220, 53, 69, .55); } 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); } }
+  @media (prefers-reduced-motion: reduce) { .ev-check-item, .ev-flash { transition: none; animation: none; } }
+  /* submitted reports: read only. Fields stay readable, the editing tools go away. */
+  .ev-readonly #aiToolbar, .ev-readonly #evDrop, .ev-readonly #fuAdd, .ev-readonly .btn-remove-plant, .ev-readonly #typeClear,
+  .ev-readonly :disabled { opacity: 1; cursor: default; background-color: var(--bs-tertiary-bg, #f8f9fa); }
+  /* Keep the cost picker visible in read-only mode, but hide removal tools */
+  .ev-readonly .cost-remove { display: none !important; }
+  .ev-review .step-panel:not([data-step="7"]) :disabled { opacity: 1; cursor: default; background-color: var(--bs-tertiary-bg, #f8f9fa); }
+  .ev-review .step-panel:not([data-step="7"]) #aiToolbar, 
+  .ev-review .step-panel:not([data-step="7"]) #evDrop, 
+  .ev-review .step-panel:not([data-step="7"]) #fuAdd, 
+  .ev-review .step-panel:not([data-step="7"]) .btn-remove-plant, 
+  .ev-review .step-panel:not([data-step="7"]) #typeClear { display: none !important; }
+  /* step 7: cost estimate */
+  .cost-toolbar { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: center; }
+  .cost-toolbar .plant-picker { flex: 1 1 20rem; min-width: 0; }
+  .cost-list { list-style: none; margin: .75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+  .cost-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto 7.5rem 2rem; gap: .4rem .9rem; align-items: center; padding: .55rem .75rem;
+              border: 1px solid var(--bs-border-color, #dee2e6); border-radius: .5rem; background: var(--bs-body-bg, #fff); }
+  .cost-row .cr-name strong { display: block; line-height: 1.25; }
+  .cost-row .cr-name small { color: var(--bs-secondary-color, #6c757d); }
+  .cost-type { display: inline-flex; border: 1px solid var(--bs-border-color, #ced4da); border-radius: .375rem; overflow: hidden; }
+  .cost-type button { border: 0; background: transparent; padding: .3rem .7rem; font-size: .85rem; color: inherit; }
+  .cost-type button + button { border-left: 1px solid var(--bs-border-color, #ced4da); }
+  .cost-type button[aria-pressed="true"] { background: #C8102E; color: #fff; }
+  .cost-in { display: flex; align-items: center; gap: .3rem; }
+  .cost-in input { width: 6.5rem; }
+  .cost-in .unit { color: var(--bs-secondary-color, #6c757d); font-size: .85rem; white-space: nowrap; }
+  .cr-total { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cost-remove { border: 0; background: none; color: var(--bs-danger, #dc3545); padding: .25rem; }
+  .cost-empty { margin-top: .75rem; color: var(--bs-secondary-color, #6c757d); font-size: .9rem; }
+  .cost-summary { margin: 1rem 0 0 auto; max-width: 32rem; border: 1px solid var(--bs-border-color, #dee2e6); border-radius: .5rem; padding: .75rem 1rem; }
+  .cs-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .2rem 0; font-variant-numeric: tabular-nums; }
+  .cs-total { border-top: 1px solid var(--bs-border-color, #dee2e6); margin-top: .3rem; padding-top: .45rem; font-weight: 600; }
+  .cs-grand { font-size: 1.15rem; }
+  .cs-note { margin-top: .5rem; color: var(--bs-secondary-color, #6c757d); font-size: .8rem; }
+  @media (max-width: 767.98px) {
+    .cost-row { grid-template-columns: minmax(0, 1fr) auto; }
+    .cost-row .cr-name { grid-column: 1 / -1; }
+    .cost-row .cr-total { grid-column: 1 / -1; text-align: left; }
+  }
+</style>
+<div id="evform"{% if read_only and not review_mode %} class="ev-readonly"{% elif review_mode %} class="ev-review"{% endif %}>
   <div id="evTop"></div>
 
 <div class="ev-head">
     <div>
       <span class="note">Event No.</span>
       <strong data-live="event_no">{{ event.event_no|default:"New report" }}</strong>
-      <span id="statusBadge" class="badge ms-2 {% if event.is_finished %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if event.is_finished %}Submitted{% else %}Draft{% endif %}</span>
-      {% include "events/_tip.html" with tip="Draft: still being filled in, and saved as you go. Submitted: sent in. You can still reopen it, and every change is logged." label="Report status" %}
+      <span id="statusBadge" class="badge ms-2 {% if not event or event.status == 'draft' %}text-bg-warning{% elif event.status == 'processed' %}text-bg-success{% else %}text-bg-primary{% endif %}">{% if event %}{{ event.get_status_display }}{% else %}Draft{% endif %}</span>
+      {% include "events/_tip.html" with tip="Draft: only you can see it, and it is saved as you go. Submitted: sent in; everyone can read it but nobody can change it. Processed: the Construction Manager has accepted it." label="Report status" %}
+    </div>
+    {% if can_delete %}{% url 'event_delete' event.pk as del_url %}{% if del_url %}
+    <button type="button" class="btn btn-sm btn-outline-danger no-print" data-draft-delete-url="{{ del_url }}" data-leave="1"><i class="bi bi-trash" aria-hidden="true"></i> Delete draft</button>
+    {% endif %}{% endif %}
+  </div>
+
+  {% if event.status == 'draft' and event.returned_note %}
+  <div class="alert alert-danger d-flex align-items-start gap-2 no-print" role="alert">
+    <i class="bi bi-arrow-return-left mt-1" aria-hidden="true"></i>
+    <div>
+      <strong>Returned{% if event.returned_by %} by {{ event.returned_by.get_full_name|default:event.returned_by.username }}{% endif %}{% if event.returned_at %} on {{ event.returned_at|date:"d M Y" }}{% endif %}.</strong>
+      <div style="white-space: pre-line">{{ event.returned_note }}</div>
+      <div class="small mt-1">Fix this, then submit the report again.</div>
     </div>
   </div>
+  {% endif %}
+
+  {% if review_mode %}
+  <div class="alert alert-info d-flex align-items-start gap-2 no-print" role="status">
+    <i class="bi bi-clipboard-check mt-1" aria-hidden="true"></i>
+    <div>You are reviewing this report. Steps 1 to 6 are read-only. Complete step 7, then <strong>Return</strong> it to {{ reporter.get_full_name|default:reporter.username }} or <strong>Process</strong> it.</div>
+  </div>
+  {% endif %}
+
+  {% if read_only and not review_mode %}
+  <div class="alert alert-secondary d-flex align-items-start gap-2 no-print" role="status">
+    <i class="bi bi-lock-fill mt-1" aria-hidden="true"></i>
+    <div>This report is <strong>{{ event.get_status_display|lower }}</strong>, so it can only be read.
+      {% if event.reported_by_id != user.id %}Reported by {{ reporter.get_full_name|default:reporter.username }}.{% endif %}</div>
+  </div>
+  {% endif %}
 
   <ol id="stepper" class="stepper no-print">
     {% for n, t in step_titles %}
@@ -23,7 +120,7 @@
 
 <div id="aiToolbar" class="card mb-3 ai-toolbar-card shadow-sm no-print">
     <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
-        <span class="fw-bold small text-white me-2"><i class="bi bi-stars text-warning"></i> Plant AI Assistant:</span>
+        <span class="fw-bold small text-white me-2"><i class="bi bi-stars text-warning"></i>AI Assistant:</span>
         
         <button type="button" class="btn btn-sm btn-outline-danger" data-action="record" onclick="globalRecord(this)" title="Dictate voice notes via Whisper v3 (Alt+1)">
             <i class="bi bi-mic"></i> <span class="ai-txt">Voice</span><span class="kbd-hint">Alt+1</span>
@@ -46,6 +143,7 @@
     </div>
 </div>
 
+  <div class="ev-cols" id="evCols"><div class="ev-main">
   {# ------------------------------------------------------------ 1 #}
   {% if 1 in steps %}
   <form class="step-panel d-none" data-step="1" autocomplete="off" novalidate>{% csrf_token %}
@@ -201,22 +299,53 @@
 
   {# ------------------------------------------------------------ 5 #}
   {% if 5 in steps %}
+  {% url 'upload_attachment' as ev_up_url %}{% url 'list_attachments' as ev_list_url %}{% url 'update_attachment' 999999999 as ev_upd_url %}{% url 'delete_attachment' 999999999 as ev_del_url %}{% url 'sign_attachment_upload' as ev_sign_url %}{% url 'register_attachment' as ev_reg_url %}
   <form class="step-panel d-none" data-step="5" autocomplete="off" novalidate>{% csrf_token %}
+    {# Filled in by the page from the uploaded files. Kept outside the cells so the review screen ignores them. #}
+    {{ f5.photos }}{{ f5.photo_count }}{{ f5.video }}{{ f5.video_count }}
     <section class="sec">
-      <h2 class="sec-title"><span class="num">5</span>Evidence <span class="small fw-normal ms-2">required if there is a delay</span></h2>
+      <h2 class="sec-title"><span class="num">5</span>Evidence <span class="small fw-normal ms-2">add at least one file, or use other sources</span></h2>
       <div class="sec-body"><div class="fgrid">
-        {% include "events/_cell.html" with f=f5.photos cls="c3" %}
-        {% include "events/_cell.html" with f=f5.photo_count cls="c3" show="photos=yes" %}
-        {% include "events/_cell.html" with f=f5.video cls="c3" %}
-        {% include "events/_cell.html" with f=f5.video_count cls="c3" show="video=yes" %}
-        {% include "events/_cell.html" with f=f5.uploaded_to cls="c6" %}
-        {% include "events/_cell.html" with f=f5.uploaded_to_other cls="c6" %}
-        {% include "events/_cell.html" with f=f5.file_names_link cls="c12" %}
-        {% include "events/_cell.html" with f=f5.other_records cls="c12" %}
-        <div class="fcell c12"><div class="val note">Name files <strong>EV-No_Site_Date_01</strong>. Take photos before anything is moved, include the site sign or km marker, keep the date/time stamp, and shoot the whole area first, then the detail.</div></div>
+
+        <div class="fcell c12" id="evidenceCell">
+          <div class="lbl">Photos, video &amp; files{% include "events/_tip.html" with tip="Add the photos, videos or PDFs that show what happened. They upload in the background, so you can keep filling in the form. Name each file and add a comment so it is easy to find later." label="Photos, video and files" %}</div>
+          <div class="val">
+            <div class="ev-uploader" id="evUploader" data-upload-url="{{ ev_up_url }}" data-list-url="{{ ev_list_url }}" data-update-url="{{ ev_upd_url }}" data-delete-url="{{ ev_del_url }}" data-sign-url="{{ ev_sign_url }}" data-register-url="{{ ev_reg_url }}">
+              <div class="ev-drop" id="evDrop" tabindex="0" role="button" aria-label="Add photos, video or files">
+                <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i>
+                <div class="ev-drop-text"><strong class="ev-hint-pointer">Drag files here</strong><strong class="ev-hint-touch">Add photos, video or files</strong><span class="ev-or"> or</span></div>
+                <div class="ev-drop-actions">
+                  <button type="button" class="btn btn-primary" id="evBrowse"><i class="bi bi-folder2-open" aria-hidden="true"></i> Browse files</button>
+                  <button type="button" class="btn btn-outline-primary ev-camera" id="evCamera"><i class="bi bi-camera" aria-hidden="true"></i> Take photo or video</button>
+                </div>
+                <div class="ev-drop-sub">Photos, video, PDF or Office files, up to 100 MB each. You can pick several at once.</div>
+                <input type="file" id="evFile" class="d-none" multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt" tabindex="-1">
+                <input type="file" id="evCam" class="d-none" accept="image/*,video/*" capture="environment" tabindex="-1">
+              </div>
+              <div class="ev-options">
+                <label class="wpu-switch ev-shrink" for="evShrink"><input type="checkbox" id="evShrink" class="form-check-input" checked><span class="track" aria-hidden="true"></span><span class="txt">Make photos smaller for a faster upload</span></label>
+                {% include "events/_tip.html" with tip="Resizes large photos to 2560 pixels on the longest side before they upload. Anything written on the picture (a date stamp, a sign) is kept. The hidden date, time and GPS data stored inside the photo file is removed. Turn this off to upload the original." label="Make photos smaller" %}
+              </div>
+              <div class="ev-summary d-none" id="evSummary" aria-live="polite"></div>
+              <ul class="ev-list d-none" id="evList"></ul>
+              <div class="invalid-feedback d-block" data-err="photos"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fcell c12"><div class="val note">Take photos <strong>before anything is moved</strong>, include the site sign or km marker, keep the date/time stamp, and shoot the whole area first, then the detail. Files are named automatically (event number, date and a counter). Rename any that need a clearer name.</div></div>
+        {# No .lbl, so the review screen skips this cell. The switch is saved (other_evidence) because the submit rules depend on it. #}
+        <div class="fcell c12"><div class="val">
+          <label class="wpu-switch" for="evOtherToggle"><input type="checkbox" id="evOtherToggle" name="other_evidence" class="form-check-input" role="switch"{% if other_evidence_open %} checked{% endif %}><span class="track" aria-hidden="true"></span><span class="txt">I have evidence from other sources <span class="small fw-normal">(optional)</span></span></label>
+        </div></div>
+        {% include "events/_cell.html" with f=f5.uploaded_to cls="c6 ev-other" %}
+        {% include "events/_cell.html" with f=f5.uploaded_to_other cls="c6 ev-other" %}
+        {% include "events/_cell.html" with f=f5.file_names_link cls="c12 ev-other" %}
+        {% include "events/_cell.html" with f=f5.other_records cls="c12 ev-other" %}
       </div></div>
     </section>
   </form>
+  <div class="ev-pill d-none" id="evPill" role="status" aria-live="polite"><i class="bi bi-cloud-arrow-up" aria-hidden="true"></i><span class="t"></span></div>
   {% endif %}
 
   {# ------------------------------------------------------------ 6 #}
@@ -226,17 +355,34 @@
       <h2 class="sec-title"><span class="num">6</span>Client notification</h2>
       <div class="sec-body"><div class="fgrid">
         {% include "events/_cell.html" with f=f6.client_notified cls="c12" %}
-        {% include "events/_cell.html" with f=f6.notified_who cls="c4" show="client_notified=yes" %}
-        {% include "events/_cell.html" with f=f6.notified_bhp_role cls="c4" show="client_notified=yes" %}
-        {% include "events/_cell.html" with f=f6.notified_how cls="c4" show="client_notified=yes" %}
-        {% include "events/_cell.html" with f=f6.notified_at cls="c6" show="client_notified=yes" %}
+
+        {# ---- Client told: who, how, when ---- #}
+        <div class="fgroup" data-show-when="client_notified=yes"><span class="gt">Who and how</span><span class="gd">The person told and the way they were told</span></div>
+        {% include "events/_cell.html" with f=f6.notified_who cls="c6" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.notified_how cls="c6" show="client_notified=yes" %}
+
+        <div class="fgroup" data-show-when="client_notified=yes"><span class="gt">When</span><span class="gd">Date and time, and where to find the notice</span></div>
+        <div class="fcell c6" data-show-when="client_notified=yes">
+          <div class="lbl">{{ f6.notified_at.label }}{% include "events/_tip.html" with tip=f6.notified_at.field.tip label=f6.notified_at.label %}</div>
+          <div class="val">
+            {{ f6.notified_at }}
+            {# No name on the switch, so the review screen and the autosave both ignore it. #}
+            <label class="wpu-switch mt-2" for="chkNotifiedNow"><input type="checkbox" id="chkNotifiedNow" class="form-check-input"><span class="track" aria-hidden="true"></span><span class="txt">Now</span></label>
+            <div class="invalid-feedback d-block" data-err="notified_at"></div>
+          </div>
+        </div>
         {% include "events/_cell.html" with f=f6.notification_reference cls="c6" show="client_notified=yes" %}
+
+        <div class="fgroup" data-show-when="client_notified=yes"><span class="gt">Client response</span><span class="gd">What the client said or directed</span></div>
+        {% include "events/_cell.html" with f=f6.client_response cls="c12" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.direction_confirmed cls="c6" show="client_notified=yes" %}
+        {% include "events/_cell.html" with f=f6.direction_confirmed_ref cls="c6" show="client_notified=yes and direction_confirmed=yes" %}
+        <div class="fcell c12" data-show-when="client_notified=yes"><div class="val note">A verbal direction is not enough. The Construction Manager must confirm any BHP-directed change, stand-down or resequence to BHP in writing the same day.</div></div>
+
+        {# ---- Client not told yet: only why not, and when ---- #}
+        <div class="fgroup" data-show-when="client_notified=no"><span class="gt">Not told yet</span><span class="gd">Why not, and when the client will be told</span></div>
         {% include "events/_cell.html" with f=f6.not_notified_reason cls="c8" show="client_notified=no" %}
         {% include "events/_cell.html" with f=f6.will_notify_when cls="c4" show="client_notified=no" %}
-        {% include "events/_cell.html" with f=f6.client_response cls="c12" %}
-        {% include "events/_cell.html" with f=f6.direction_confirmed cls="c6" %}
-        {% include "events/_cell.html" with f=f6.direction_confirmed_ref cls="c6" show="direction_confirmed=yes" %}
-        <div class="fcell c12"><div class="val note">A verbal direction is not enough. The Construction Manager must confirm any BHP-directed change, stand-down or resequence to BHP in writing the same day.</div></div>
       </div></div>
     </section>
   </form>
@@ -248,15 +394,51 @@
     <section class="sec">
       <h2 class="sec-title"><span class="num">7</span>Contract &amp; cost impact <span class="small fw-normal ms-2">Construction Manager completes</span></h2>
       <div class="sec-body"><div class="fgrid">
+        <div class="fgroup"><span class="gt">Contract position</span><span class="gd">Claims and the notice of delay</span></div>
         {% include "events/_cell.html" with f=f7.potential_claim cls="c6" %}
         {% include "events/_cell.html" with f=f7.notice_of_delay cls="c6" %}
-        {% include "events/_cell.html" with f=f7.notice_ref cls="c4" %}
-        {% include "events/_cell.html" with f=f7.notice_date cls="c4" %}
-        {% include "events/_cell.html" with f=f7.cost_estimate cls="c2" %}
-        {% include "events/_cell.html" with f=f7.time_estimate_days cls="c2" %}
-        {% include "events/_cell.html" with f=f7.recorded_in cls="c12" %}
+        {% include "events/_cell.html" with f=f7.notice_ref cls="c6" show="notice_of_delay=required" %}
+        {% include "events/_cell.html" with f=f7.notice_date cls="c6" show="notice_of_delay=required" %}
+
+        <div class="fgroup"><span class="gt">Cost estimate</span><span class="gd">Pick people, plant and materials. The price updates as you go</span></div>
+        <div class="fcell c12" id="costCell">
+          <div class="lbl">Dayworks estimate{% include "events/_tip.html" with tip="Search and add each person, plant item or material that this event costs. Choose Working or Standby for people and plant and enter the hours or days. Materials and preliminaries are entered at the contractor's cost and the markup is added. Rates come from the dayworks schedule." label="Dayworks estimate" %}</div>
+          <div class="val">
+            <div class="cost-toolbar">
+              <div class="plant-picker" id="costPickerWrap">
+                <select id="costPicker" placeholder="Search a person, plant item or material, then pick to add" aria-label="Search and add to the cost estimate"></select>
+              </div>
+              <label class="wpu-switch" for="chkNoCost"><input type="checkbox" id="chkNoCost" name="no_cost_impact" class="form-check-input" role="switch"{% if cost_data.estimate.no_cost %} checked{% endif %}><span class="track" aria-hidden="true"></span><span class="txt">No cost impact</span></label>
+              <label class="wpu-switch" for="chkSameQty"><input type="checkbox" id="chkSameQty" class="form-check-input" role="switch"><span class="track" aria-hidden="true"></span><span class="txt">Apply same hours</span></label>
+              {% include "events/_tip.html" with tip="Switch on when there is nothing to price. The estimate stays empty and that counts as complete." label="No cost impact" %}
+            </div>
+            <div id="costBody"{% if cost_data.estimate.no_cost %} class="d-none"{% endif %}>
+              <ul class="cost-list" id="costList"></ul>
+              <div id="noCostMsg" class="cost-empty">Nothing added yet. Use the search box above.</div>
+              <div class="cost-summary" id="costSummary" aria-live="polite">
+                <div class="cs-row"><span>Labour</span><span id="csLabour">$0.00</span></div>
+                <div class="cs-row"><span>Construction plant</span><span id="csPlant">$0.00</span></div>
+                <div class="cs-row"><span>Materials &amp; preliminaries <small class="text-muted">(cost + <span id="csMarkup">10</span>%)</small></span><span id="csMaterial">$0.00</span></div>
+                <div class="cs-row cs-total"><span>Total estimated cost (excl. GST)</span><span id="csEx">$0.00</span></div>
+                <div class="cs-row">
+                  <label class="wpu-switch" for="chkGst"><input type="checkbox" id="chkGst" name="apply_gst" class="form-check-input" role="switch"{% if cost_data.estimate.apply_gst %} checked{% endif %}><span class="track" aria-hidden="true"></span><span class="txt">Apply GST (<span id="csGstPct">10</span>%)</span></label>
+                  <span id="csGst">$0.00</span>
+                </div>
+                <div class="cs-row cs-total cs-grand"><span>Total estimated cost (incl. GST)</span><span id="csInc">$0.00</span></div>
+                <div class="cs-note" id="csShare"></div>
+              </div>
+            </div>
+            <div class="invalid-feedback d-block" data-err="cost_lines"></div>
+          </div>
+        </div>
+
+        <div class="fgroup"><span class="gt">Time and records</span><span class="gd">Time impact and where it is recorded</span></div>
+        {% include "events/_cell.html" with f=f7.time_estimate_days cls="c4" %}
+        {% include "events/_cell.html" with f=f7.recorded_in cls="c8" %}
+
+        <div class="fgroup"><span class="gt">Follow-up</span><span class="gd">What has to happen next, and who does it</span></div>
         <div class="fcell c12">
-          <div class="lbl">Follow-up actions</div>
+          <div class="lbl">Follow-up actions{% include "events/_tip.html" with tip="Add each thing that still has to be done, who owns it and when it is due. When you add an action, all three boxes must be filled in." label="Follow-up actions" %}</div>
           <div class="val">
             <div id="fuRows">{% for fu in followups %}{% include "events/_followup_row.html" %}{% endfor %}</div>
             <button type="button" id="fuAdd" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-plus-lg"></i> Add action</button>
@@ -270,6 +452,37 @@
   <template id="fuTemplate">{% include "events/_followup_row.html" with fu=None %}</template>
   {% endif %}
 
+  </div>{# /ev-main #}
+
+  <aside id="evCheck" class="ev-check card shadow d-none no-print" aria-label="Missing information">
+    <div class="card-header d-flex align-items-center p-0">
+      <button type="button" id="evCheckHead" class="ev-check-head btn btn-link text-decoration-none text-reset flex-grow-1 d-flex align-items-center gap-2 text-start px-3 py-2" aria-expanded="true" aria-controls="evCheckScroll" title="Show or hide the list">
+        <i class="bi bi-list-check" aria-hidden="true"></i><strong id="evCheckTitle">{% if review_mode %}Before you process{% else %}Before you submit{% endif %}</strong>
+        <span id="evCheckN" class="badge text-bg-danger"></span>
+        <i class="bi bi-chevron-down ms-auto ev-check-chev" aria-hidden="true"></i>
+      </button>
+      <button type="button" id="evCheckClose" class="btn-close me-3" aria-label="Hide this list"></button>
+    </div>
+    <div class="ev-check-scroll" id="evCheckScroll">
+      <div id="evCheckOk" class="ev-check-ok d-none" role="status"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>Everything required is filled in. You can {% if review_mode %}process{% else %}submit{% endif %} now.</span></div>
+      <div id="evCheckBody" aria-live="polite"></div>
+    </div>
+  </aside>
+  </div>{# /ev-cols #}
+
+  {% if review_mode %}
+  <div class="step-nav no-print">
+    {% url 'event_return' event.pk as ret_url %}
+    <button type="button" id="btnReturn" class="btn btn-outline-danger" data-url="{{ ret_url }}"><i class="bi bi-arrow-return-left"></i> Return<span class="d-none d-sm-inline"> to reporter</span></button>
+    <div class="step-mid">
+      <div class="small text-muted" id="stepLabel"></div>
+      <div id="saveState" class="save-state saved"><i class="bi bi-cloud-check"></i> <span>Changes save automatically</span></div>
+    </div>
+    <button type="button" id="btnProcess" class="btn btn-success"><i class="bi bi-check2-circle"></i> Process</button>
+    <button type="button" id="btnBack" class="d-none" tabindex="-1" aria-hidden="true"></button>
+    <button type="button" id="btnNext" class="d-none" tabindex="-1" aria-hidden="true"></button>
+  </div>
+  {% else %}
   <div class="step-nav no-print">
     <button type="button" id="btnBack" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</button>
     <div class="step-mid">
@@ -279,14 +492,59 @@
     <button type="button" id="btnNext" class="btn btn-primary">Next <i class="bi bi-arrow-right"></i></button>
     {% if not event.is_finished %}<button type="button" id="btnSubmit" class="btn btn-success d-none"><i class="bi bi-send-check"></i> Submit event</button>{% endif %}
   </div>
-  {% if event.is_finished %}<p class="note text-center mt-2">This event is submitted. Any change you make is saved and logged.</p>{% endif %}
+  {% endif %}
 </div>
 
 {{ ev_config|json_script:"ev-config" }}
+{% if cost_data %}{{ cost_data|json_script:"ev-cost" }}{% endif %}
+{{ attachments|json_script:"ev-attachments" }}
 {% endblock %}
 
 {% block extra_js %}
 <script src="{% static 'js/event_form.js' %}"></script>
+
+<script>
+/* Step 5: show / hide "other sources" evidence */
+(function () {
+  const box = document.getElementById('evOtherToggle');
+  if (!box) return;
+  const cells = () => [...document.querySelectorAll('form[data-step="5"] .ev-other')];
+  const fields = () => cells().flatMap(c => [...c.querySelectorAll('input, select, textarea')]
+    .filter(f => f.name && f.name !== 'csrfmiddlewaretoken'));
+
+  const hasData = () => fields().some(f =>
+    f.type === 'checkbox' || f.type === 'radio' ? f.checked
+    : f.tagName === 'SELECT' ? [...f.selectedOptions].some(o => o.value !== '')
+    : f.value.trim() !== '');
+
+  const show = () => cells().forEach(c => c.classList.toggle('d-none', !box.checked));
+
+  function clearAll() {
+    fields().forEach(f => {
+      if (f.tomselect) f.tomselect.clear();
+      else if (f.type === 'checkbox' || f.type === 'radio') f.checked = false;
+      else if (f.tagName === 'SELECT') [...f.options].forEach(o => { o.selected = false; });
+      else f.value = '';
+      f.dispatchEvent(new Event('input', { bubbles: true }));   // so autosave sees the change
+      f.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
+
+  box.addEventListener('change', async () => {
+    if (!box.checked && hasData()) {
+      const msg = 'Hiding this removes what you entered for the other evidence sources.';
+      const ok = (window.WPU && WPU.confirm)
+        ? await WPU.confirm(msg, { title: 'Hide and clear?' })
+        : window.confirm(msg);
+      if (!ok) { box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); return; }   // save it as on again
+      clearAll();
+    }
+    show();
+  });
+
+  show();
+})();
+</script>
 
 
 <script>
@@ -363,6 +621,21 @@
     return lines.join('\n');
   }
 
+  function attachmentsText(cell) {
+    const lines = [];
+    cell.querySelectorAll('#evList li.ev-item').forEach(li => {
+      const nm = li.querySelector('.ev-name');
+      const cm = li.querySelector('.ev-comment');
+      const orig = li.querySelector('.ev-meta');
+      let t = clean((nm && nm.value) || (orig && orig.textContent) || 'File');
+      const state = li.getAttribute('data-state');
+      if (state && state !== 'done') t += state === 'error' ? ' (upload failed)' : ' (still uploading)';
+      const c = cm ? clean(cm.value) : '';
+      lines.push(c ? t + ' - ' + c : t);
+    });
+    return lines.join('\n');
+  }
+
   function followUps(form) {
     const wrap = form.querySelector('#fuRows');
     if (!wrap) return '';
@@ -421,6 +694,7 @@
         let text, auto = false;
         if (cell.querySelector('#fuRows')) text = followUps(form);
         else if (cell.querySelector('#plantTableBody')) text = plantsText(cell);
+        else if (cell.querySelector('#evList')) text = attachmentsText(cell);
         else ({ text, auto } = cellValue(cell));
         const row = el('div', 'rv-row');
         row.append(el('div', 'rv-k', clean(lbl.textContent).replace(/\*$/, '').trim()));
@@ -462,50 +736,8 @@
     });
   }
 
-  /* Works with the old AND the patched event_form.js:
-     1. Capture the click on #btnSubmit before any other handler and show the review.
-     2. After "Submit report", re-fire the click; the form's own save/validate/submit
-        code runs, but its extra "Submit this event?" prompt is auto-accepted (once),
-        so there is exactly one confirmation: this modal. */
-  let confirmed = false, pendingSkip = false;
-
-  function patchWpuConfirm() {
-    if (typeof WPU === 'undefined' || !WPU.confirm || WPU.__evPatched) return;
-    const orig = WPU.confirm;
-    WPU.confirm = function (msg, opts) {
-      if (pendingSkip && opts && opts.title === 'Submit this event?') {
-        pendingSkip = false;
-        return Promise.resolve(true);
-      }
-      return orig.apply(this, arguments);
-    };
-    WPU.__evPatched = true;
-  }
-
-  // used by the patched event_form.js (after save + validation)
-  window.EvReview = {
-    confirm: () => {
-      if (pendingSkip) { pendingSkip = false; return Promise.resolve(true); }
-      return showReview().then(r => r.isConfirmed);
-    }
-  };
-
-  window.addEventListener('click', (e) => {
-    const btn = e.target.closest && e.target.closest('#btnSubmit');
-    if (!btn) return;
-    if (confirmed) { confirmed = false; return; }   // re-fired click: let the form's handler run
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    if (Swal.isVisible()) return;
-    pendingSkip = false;
-    showReview().then(res => {
-      if (!res.isConfirmed) return;
-      patchWpuConfirm();
-      pendingSkip = true;
-      confirmed = true;
-      btn.click();
-    });
-  }, true);
+  /* event_form.js saves, checks what is still missing, and only then calls this; nothing is sent until the user confirms */
+  window.EvReview = { confirm: () => showReview().then(r => r.isConfirmed) };
 })();
 </script>
 
@@ -741,5 +973,37 @@ window.addEventListener('beforeunload', () => {
     try { mediaRecorder.stop(); } catch (_) {}
   }
 });
+
+</script>
+<script>
+/* return to reporter (Construction Manager): a note is required, the report goes back to Draft */
+(function () {
+  var b = document.getElementById("btnReturn"); if (!b) return;
+  function token() { var m = document.querySelector('meta[name="csrf-token"]'); return (window.WPU && WPU.csrf) || (m ? m.content : ""); }
+  b.addEventListener("click", function () {
+    Swal.fire({
+      title: "Return to reporter",
+      html: '<p class="small text-start mb-2">Say what needs fixing. The writer sees this on top of the report, gets an email, and the report goes back to Draft.</p>' +
+            '<textarea id="retNote" class="form-control" rows="5" maxlength="2000" placeholder="Example: Add the supervisor name and a photo of the damaged cable."></textarea>',
+      showCancelButton: true, confirmButtonText: "Return report", confirmButtonColor: "#C8102E", focusConfirm: false,
+      preConfirm: function () {
+        var v = document.getElementById("retNote").value.trim();
+        if (v.length < 10) { Swal.showValidationMessage("Say what needs fixing, in a few words at least."); return false; }
+        return v;
+      }
+    }).then(function (r) {
+      if (!r.isConfirmed) return;
+      var fd = new FormData(); fd.append("note", r.value); b.disabled = true;
+      fetch(b.dataset.url, { method: "POST", body: fd, credentials: "same-origin",
+                             headers: { "X-CSRFToken": token(), "X-Requested-With": "XMLHttpRequest" } })
+        .then(function (res) { return res.json(); })
+        .then(function (d) {
+          if (d.ok) { window.location = d.redirect; return; }
+          b.disabled = false; Swal.fire({ icon: "error", title: "Not returned", text: d.error || "Try again.", confirmButtonColor: "#C8102E" });
+        })
+        .catch(function () { b.disabled = false; Swal.fire({ icon: "error", title: "Not returned", text: "Could not reach the server. Try again.", confirmButtonColor: "#C8102E" }); });
+    });
+  });
+})();
 </script>
 {% endblock %}
