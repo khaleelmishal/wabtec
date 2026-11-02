@@ -1,12 +1,16 @@
-{% url 'event_delete' e.pk as del_url %}<li class="rep position-relative{% if e.pk == active_pk %} active{% endif %}" data-event-id="{{ e.pk }}" data-status="{{ e.status }}" data-mine="{% if e.reported_by_id == user.id %}1{% else %}0{% endif %}" data-search="{{ e.event_no|lower }} {{ e.title|lower }} {{ e.reported_by.get_full_name|default:e.reported_by.username|lower }}">
-  <a href="{% url 'event_edit' e.pk %}">
-    <div class="d-flex justify-content-between align-items-start gap-2">
-      <strong>{{ e.event_no }}</strong>
-      {% if e.status == 'draft' and e.submitted_at %}<span class="badge text-bg-danger" title="Sent back by the Construction Manager. Open it to see why.">Returned</span>
-      {% else %}<span class="badge {% if e.status == 'draft' %}text-bg-warning{% elif e.status == 'processed' %}text-bg-success{% else %}text-bg-primary{% endif %}">{{ e.get_status_display }}</span>{% endif %}
+{% url 'event_delete' e.pk as del_url %}<li class="rl-item{% if e.pk == active_pk %} active{% endif %}{% if e.status == 'draft' and e.submitted_at %} is-returned{% endif %}{% if e.status == 'draft' and e.submitted_at is None and e.reported_by_id == user.id and del_url %} has-del{% endif %}" data-event-id="{{ e.pk }}" data-status="{{ e.status }}" data-mine="{% if e.reported_by_id == user.id %}1{% else %}0{% endif %}" data-search="{{ e.event_no|lower }} {{ e.title|lower }} {{ e.reported_by.get_full_name|default:e.reported_by.username|lower }}">
+  <a class="rl-link" href="{% url 'event_edit' e.pk %}"{% if e.pk == active_pk %} aria-current="page"{% endif %}>
+    <div class="rl-top">
+      <strong class="rl-no">{{ e.event_no }}</strong>
+      {% if e.status == 'draft' and e.submitted_at %}<span class="rl-badge" title="Sent back by the Construction Manager. Open it to see why.">Returned</span>
+      {% else %}<span class="rl-badge">{{ e.get_status_display }}</span>{% endif %}
     </div>
-    <div class="rep-title text-truncate">{{ e.title }}</div>
-    <div class="rep-meta">{{ e.event_date|date:"d M Y"|default:"No date yet" }} &middot; {% if e.reported_by_id == user.id %}you{% else %}{{ e.reported_by.get_full_name|default:e.reported_by.username }}{% endif %} &middot; {% if e.status == 'draft' %}edited {{ e.updated_at|timesince }} ago{% else %}submitted {{ e.submitted_at|timesince }} ago{% endif %}</div>
+    <div class="rl-title">{{ e.title }}</div>
+    <div class="rl-meta">
+      <span><i class="bi bi-calendar3" aria-hidden="true"></i>{{ e.event_date|date:"d M Y"|default:"No date yet" }}</span>
+      <span><i class="bi bi-person" aria-hidden="true"></i>{% if e.reported_by_id == user.id %}you{% else %}{{ e.reported_by.get_full_name|default:e.reported_by.username }}{% endif %}</span>
+      <span><i class="bi bi-clock" aria-hidden="true"></i>{% if e.status == 'draft' %}edited {{ e.updated_at|timesince }} ago{% else %}submitted {{ e.submitted_at|timesince }} ago{% endif %}</span>
+    </div>
   </a>
-  {% if e.status == 'draft' and e.submitted_at is None and e.reported_by_id == user.id and del_url %}<button type="button" class="btn btn-sm btn-link text-danger p-0 position-absolute bottom-0 end-0 m-2" data-draft-delete-url="{{ del_url }}" title="Delete this draft" aria-label="Delete this draft"><i class="bi bi-trash" aria-hidden="true"></i></button>{% endif %}
+  {% if e.status == 'draft' and e.submitted_at is None and e.reported_by_id == user.id and del_url %}<button type="button" class="rl-del" data-draft-delete-url="{{ del_url }}" title="Delete this draft" aria-label="Delete this draft"><i class="bi bi-trash" aria-hidden="true"></i></button>{% endif %}
 </li>

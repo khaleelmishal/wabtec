@@ -124,15 +124,7 @@ table.dataTable tbody tr:hover > * { background: var(--wpu-label); }
 .step-nav { position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center; gap: .5rem; background: #fff; border-top: 1px solid var(--wpu-line); padding: .6rem 0; padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); margin-top: 1rem; z-index: 5; }
 .step-nav .btn { min-width: 7rem; }
 
-.rep-panel { border: 1px solid var(--wpu-line); }
-.rep-head { background: var(--wpu-ink); color: #fff; padding: .5rem .75rem; display: flex; justify-content: space-between; align-items: center; }
-.rep-filter { padding: .5rem; }
-.rep-list { max-height: 70vh; overflow-y: auto; }
-.rep { border-top: 1px solid var(--wpu-line); }
-.rep a { display: block; padding: .55rem .75rem; color: var(--wpu-ink); text-decoration: none; }
-.rep a:hover { background: var(--wpu-label); }
-.rep.active { border-left: 4px solid var(--wpu-red); background: var(--wpu-label); }
-.rep-title { font-size: .82rem; } .rep-meta { font-size: .72rem; color: #666; }
+
 .btn-check:checked + .btn-outline-secondary {
   background-color: var(--wpu-ink) !important;
   color: #fff !important;
@@ -140,7 +132,110 @@ table.dataTable tbody tr:hover > * { background: var(--wpu-label); }
 }
 .fu-row { display: grid; grid-template-columns: 1fr; gap: .4rem; padding: .5rem 0; border-bottom: 1px dashed var(--wpu-line); }
 @media (min-width: 768px) { .fu-row { grid-template-columns: 3fr 2fr 1.4fr 1.2fr auto; align-items: start; } }
+/* Reports sidebar: events/_sidebar.html + events/_sidebar_item.html
+   Everything is scoped under .rl, so the old .rep-* rules in app.css no longer apply (delete them when ready).
+   The accent is --bs-primary, so the sidebar follows the rest of the theme. */
 
+.rl {
+  --rl-accent: var(--bs-primary, #C8102E);
+  --rl-accent-soft: color-mix(in srgb, var(--rl-accent) 7%, var(--bs-body-bg, #fff));
+  --rl-line: var(--bs-border-color, #dee2e6);
+  --rl-line-soft: color-mix(in srgb, var(--rl-line) 60%, transparent);
+  --rl-muted: var(--bs-secondary-color, #6c757d);
+  --rl-hover: var(--bs-tertiary-bg, #f8f9fa);
+
+  padding: 1rem;
+  background: var(--bs-body-bg, #fff);
+  border: 1px solid var(--rl-line);
+  border-radius: .75rem;
+}
+
+/* ---- header ---- */
+.rl-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .875rem; }
+.rl-head h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+
+/* ---- filter tabs: a segmented control, count over label ---- */
+.rl-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: .25rem; padding: .25rem;
+           background: var(--bs-tertiary-bg, #f1f3f5); border-radius: .6rem; }
+@media (min-width: 1200px) { .rl-tabs { grid-template-columns: repeat(4, 1fr); } }
+.rl-tab { display: flex; flex-direction: column; align-items: center; gap: .1rem; padding: .4rem .25rem;
+          border: 0; border-radius: .45rem; background: transparent; color: var(--rl-muted);
+          font-size: .72rem; line-height: 1.2; cursor: pointer;
+          transition: background-color .15s, color .15s, box-shadow .15s; }
+.rl-tab .rl-n { font-size: 1rem; font-weight: 700; color: var(--bs-body-color); font-variant-numeric: tabular-nums; }
+.rl-tab:hover { color: var(--bs-body-color); }
+.rl-tab.active { background: var(--bs-body-bg, #fff); color: var(--bs-body-color); font-weight: 600;
+                 box-shadow: 0 1px 3px rgb(0 0 0 / .14); }
+.rl-tab.active .rl-n { color: var(--rl-accent); }
+.rl-tab:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+
+/* ---- search + "Mine" chip ---- */
+.rl-tools { display: flex; align-items: center; gap: .5rem; margin: .75rem 0 .5rem; }
+.rl-search { position: relative; flex: 1; min-width: 0; }
+.rl-search .bi { position: absolute; left: .75rem; top: 50%; transform: translateY(-50%);
+                 color: var(--rl-muted); font-size: .78rem; pointer-events: none; }
+.rl-search input { padding-left: 2.1rem; border-radius: 999px; }
+.rl-search input:focus { border-color: var(--rl-accent);
+                         box-shadow: 0 0 0 .2rem color-mix(in srgb, var(--rl-accent) 18%, transparent); }
+
+/* The real checkbox stays in the DOM (keyboard + the JS still use it); the label is what you see. */
+.rl-chip { position: relative; display: inline-flex; align-items: center; gap: .35rem; margin: 0;
+           padding: .3rem .7rem; border: 1px solid var(--rl-line); border-radius: 999px;
+           font-size: .78rem; font-weight: 500; color: var(--rl-muted); white-space: nowrap;
+           cursor: pointer; user-select: none;
+           transition: background-color .15s, border-color .15s, color .15s; }
+.rl-chip:hover { border-color: var(--rl-muted); color: var(--bs-body-color); }
+.rl-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.rl-chip:has(input:checked) { background: var(--rl-accent); border-color: var(--rl-accent); color: #fff; }
+.rl-chip:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+
+/* ---- list ---- */
+.rl-list { list-style: none; margin: 0; padding: 0; max-height: min(28rem, 60vh);
+           overflow-y: auto; scrollbar-width: thin; }
+
+.rl-item { --rl-status: var(--rl-muted); position: relative; border-bottom: 1px solid var(--rl-line-soft);
+           transition: background-color .15s; }
+.rl-item[data-status="draft"]     { --rl-status: #9a6700; }
+.rl-item[data-status="submitted"] { --rl-status: #1d5fd1; }
+.rl-item[data-status="processed"] { --rl-status: #168a45; }
+.rl-item.is-returned              { --rl-status: #c8102e; }
+.rl-item:hover { background: var(--rl-hover); }
+.rl-item.active { background: var(--rl-accent-soft); box-shadow: inset 3px 0 0 var(--rl-accent); }
+
+.rl-link { display: block; padding: .7rem .75rem .7rem .9rem; color: inherit; text-decoration: none; }
+.rl-link:hover { color: inherit; }
+.rl-link:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+
+.rl-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.rl-no { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rl-badge { display: inline-flex; align-items: center; gap: .35rem; flex: none;
+            font-size: .72rem; font-weight: 600; color: var(--rl-status); }
+.rl-badge::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: currentColor; }
+
+.rl-title { margin-top: .25rem; font-size: .875rem; line-height: 1.3;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.rl-meta { display: flex; flex-wrap: wrap; gap: .15rem .85rem; margin-top: .4rem;
+           font-size: .72rem; color: var(--rl-muted); }
+.rl-meta span { display: inline-flex; align-items: center; gap: .3rem; }
+.rl-meta .bi { font-size: .7rem; opacity: .75; }
+.rl-item.has-del .rl-meta { padding-right: 1.7rem; }   /* keep the text clear of the trash button */
+
+/* delete a draft: shown on hover / focus, always visible on touch screens */
+.rl-del { position: absolute; right: .45rem; bottom: .45rem; display: grid; place-items: center;
+          width: 1.65rem; height: 1.65rem; padding: 0; border: 0; border-radius: .4rem;
+          background: transparent; color: var(--rl-muted); opacity: 0;
+          transition: opacity .15s, background-color .15s, color .15s; }
+.rl-item:hover .rl-del, .rl-item:focus-within .rl-del, .rl-del:focus-visible { opacity: 1; }
+.rl-del:hover { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
+.rl-del:focus-visible { outline: 2px solid #dc3545; outline-offset: 1px; }
+@media (hover: none) { .rl-del { opacity: .85; } }
+
+/* ---- empty states ---- */
+.rl-empty { padding: 1.5rem .75rem; text-align: center; font-size: .82rem; color: var(--rl-muted); }
+.rl-empty .bi { display: block; margin-bottom: .4rem; font-size: 1.4rem; opacity: .55; }
+
+@media (prefers-reduced-motion: reduce) { .rl * { transition: none !important; } }
 /* ======================================================================
    Step 1 polish: tooltips, groups, auto strip, switch, chips, error states
    ====================================================================== */

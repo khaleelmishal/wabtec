@@ -1,25 +1,34 @@
-<div class="rep-head">
-  <h2 class="h6 m-0 fw-bold text-uppercase">Reports</h2>
-  <a class="btn btn-sm btn-primary" href="{% url 'event_create' %}"><i class="bi bi-plus-lg"></i> New</a>
-</div>
-<div class="rep-filter btn-group btn-group-sm w-100" role="group" aria-label="Filter reports">
-  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'all' %} active{% endif %}" data-filter="all">All <span data-count="all">{{ n_all }}</span></button>
-  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'draft' %} active{% endif %}" data-filter="draft" title="Your own drafts. Only you can see them.">Drafts <span data-count="draft">{{ n_draft }}</span></button>
-  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'submitted' %} active{% endif %}" data-filter="submitted">Submitted <span data-count="submitted">{{ n_submitted }}</span></button>
-  <button type="button" class="btn btn-outline-secondary{% if default_filter == 'processed' %} active{% endif %}" data-filter="processed">Processed <span data-count="processed">{{ n_processed }}</span></button>
-</div>
-<div class="d-flex align-items-center gap-2 my-2">
-  <input type="search" id="repSearch" class="form-control form-control-sm" placeholder="Search number, title or name" aria-label="Search reports" autocomplete="off">
-  <div class="form-check form-switch m-0 text-nowrap" title="Show only the reports you wrote">
-    <input class="form-check-input" type="checkbox" role="switch" id="repMine"><label class="form-check-label small" for="repMine">Mine</label>
+<div class="rl">
+  <div class="rl-head">
+    <h2>Reports</h2>
+    <a class="btn btn-sm btn-primary" href="{% url 'event_create' %}"><i class="bi bi-plus-lg"></i> New</a>
   </div>
+
+  <div class="rl-tabs" role="group" aria-label="Filter reports">
+    <button type="button" class="rl-tab{% if default_filter == 'all' %} active{% endif %}" data-filter="all"><span class="rl-n" data-count="all">{{ n_all }}</span><span>All</span></button>
+    <button type="button" class="rl-tab{% if default_filter == 'draft' %} active{% endif %}" data-filter="draft" title="Your own drafts. Only you can see them."><span class="rl-n" data-count="draft">{{ n_draft }}</span><span>Drafts</span></button>
+    <button type="button" class="rl-tab{% if default_filter == 'submitted' %} active{% endif %}" data-filter="submitted"><span class="rl-n" data-count="submitted">{{ n_submitted }}</span><span>Submitted</span></button>
+    <button type="button" class="rl-tab{% if default_filter == 'processed' %} active{% endif %}" data-filter="processed"><span class="rl-n" data-count="processed">{{ n_processed }}</span><span>Processed</span></button>
+  </div>
+
+  <div class="rl-tools">
+    <div class="rl-search" title="Search by number, title or name">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="repSearch" class="form-control form-control-sm" placeholder="Search reports" aria-label="Search reports" autocomplete="off">
+    </div>
+    <label class="rl-chip" for="repMine" title="Show only the reports you wrote">
+      <input type="checkbox" id="repMine" role="switch">
+      <i class="bi bi-person" aria-hidden="true"></i><span>Mine</span>
+    </label>
+  </div>
+
+  <ul id="reportList" class="rl-list">
+    {% for e in reports %}{% include "events/_sidebar_item.html" %}{% empty %}
+    <li id="noReports" class="rl-empty"><i class="bi bi-inbox" aria-hidden="true"></i>No reports yet.<br>Start one with <strong>New</strong>.</li>
+    {% endfor %}
+    <li id="emptyFilter" class="rl-empty d-none"><i class="bi bi-funnel" aria-hidden="true"></i>Nothing in this view.</li>
+  </ul>
 </div>
-<ul id="reportList" class="rep-list list-unstyled m-0">
-  {% for e in reports %}{% include "events/_sidebar_item.html" %}{% empty %}
-  <li id="noReports" class="note p-3">No reports yet. Start one with <strong>New</strong>.</li>
-  {% endfor %}
-  <li id="emptyFilter" class="note p-3 d-none">Nothing in this view.</li>
-</ul>
 <script>
 /* The list on the left: which tab is on, the counts, and deleting a draft. Used on the list page and the form page. */
 (function () {
